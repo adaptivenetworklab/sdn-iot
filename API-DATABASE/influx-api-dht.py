@@ -6,8 +6,8 @@ app = Flask(__name__)
 
 client = InfluxDBClient(
     url="http://10.0.1.148:8086/",
-    token="1pI1wO9y2PQdnRfCZM1USrgB0h1KODuDNVCX_MScr89GKLAuxxM7Y0fu5_TzdJaaZJcvaLLlV8i0OVlYFq3RAA==",
-    org="test1"
+    token="Sesuaikan dengan token kalian",
+    org="Sesuaikan juga"
 )
 write_api = client.write_api(write_options=SYNCHRONOUS)
 
