@@ -1,0 +1,5 @@
+venv/
+venv2/
+yolo_env/
+*.pt
+__pycache__/
