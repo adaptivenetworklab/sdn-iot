@@ -1,0 +1,37 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+CSV = "dataset_dqn.csv"
+
+df = pd.read_csv(CSV)
+df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+# ============= Throughput RX =============
+plt.figure()
+plt.plot(df["timestamp"], df["rx_mbps_p1"], label="RX Port 1 (dht11)")
+plt.plot(df["timestamp"], df["rx_mbps_p2"], label="RX Port 2 (camera)")
+plt.plot(df["timestamp"], df["rx_mbps_p4"], label="RX Port 4 (max)")
+plt.xlabel("Time")
+plt.ylabel("Mbps")
+plt.title("RX Throughput 3 Ports")
+plt.xticks(rotation=30)
+plt.legend()
+plt.tight_layout()
+plt.savefig("rx_mbps_3ports.png", dpi=200)
+plt.show()
+
+# ============= Delay =============
+plt.figure()
+plt.plot(df["timestamp"], df["delay_ms_p1"], label="Delay Port 1 (dht11)")
+plt.plot(df["timestamp"], df["delay_ms_p2"], label="Delay Port 2 (camera)")
+plt.plot(df["timestamp"], df["delay_ms_p4"], label="Delay Port 4 (max)")
+plt.xlabel("Time")
+plt.ylabel("Delay (ms)")
+plt.title("One-way Delay (Device → OVS)")
+plt.xticks(rotation=30)
+plt.legend()
+plt.tight_layout()
+plt.savefig("delay_ms_3ports.png", dpi=200)
+plt.show()
+
+print("[DONE] Saved: rx_mbps_3ports.png & delay_ms_3ports.png")
