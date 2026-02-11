@@ -1,108 +1,140 @@
 #!/bin/bash
-# collect_policy_v11_throughput.sh - Utilisasi Berdasarkan Received Mbps
+# collect_final_v13.sh - Interval 10 Detik dengan Total Packet Stats
 set -e
 
 # --- 1. KONFIGURASI ---
-BRIDGE=${1:-br0}
-DURATION=${2:-3600}
-INTERVAL=${3:-1}
+BRIDGE="br0"
+INTERVAL=10
+OUT_CSV="dataset_dqn_final.csv"
+DELAY_LOG="/home/ovs/sdn-iot/pengujian/delay_log.csv"
 
-# IP Sensor sesuai allport.py
-P1_IP="192.168.15.238"; P2_IP="192.168.15.239"; P4_IP="192.168.15.240"
-IF_P1="dht11"; IF_P2="camera"; IF_P4="max"
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-DELAY_LOG="$BASE_DIR/delay_log.csv"
-OUT="$SCRIPT_DIR/dataset_dqn_rich.csv"
+# Definisi Interface & IP (P1=dht11, P2=camera, P4=max)
+IF_NAMES=("dht11" "camera" "max")
+IF_IPS=("192.168.15.238" "192.168.15.239" "192.168.15.240")
+IF_KEYS=("p1" "p2" "p4")
 
 # --- 2. HEADER CSV ---
-echo "timestamp,rx_mbps_p1,demand_mbps_p1,rx_pps_p1,util_rx_p1,drop_p1,loss_pct_p1,rx_mbps_p2,demand_mbps_p2,rx_pps_p2,util_rx_p2,drop_p2,loss_pct_p2,rx_mbps_p4,demand_mbps_p4,rx_pps_p4,util_rx_p4,drop_p4,loss_pct_p4" > "$OUT"
+HEADER="timestamp"
+for p in "${IF_KEYS[@]}"; do
+    HEADER+=",rx_mbps_$p,tx_mbps_$p,rx_pps_$p,tx_pps_$p,avg_rx_pkt_bytes_$p,util_rx_pct_$p,drop_$p,delay_ms_$p,last_payload_bytes_$p,priority_tag_$p,policing_rate_kbps_$p,policing_burst_kbps_$p"
+done
+echo "$HEADER" > "$OUT_CSV"
 
 # --- 3. FUNGSI HELPER ---
-
-get_clean_ovs_stats () {
-    local flow_stats=$(sudo ovs-ofctl dump-flows "$1" "udp,nw_dst=$2,tp_dst=9999" 2>/dev/null | grep "n_bytes")
-    echo "$(echo "$flow_stats" | grep -oP 'n_packets=\K[0-9]+' || echo 0) $(echo "$flow_stats" | grep -oP 'n_bytes=\K[0-9]+' || echo 0)"
+get_rx_stats() {
+    local stats=$(sudo ovs-ofctl dump-flows "$1" "udp,nw_dst=$2,tp_dst=9999" 2>/dev/null | grep "n_bytes")
+    local p=$(echo "$stats" | grep -oP 'n_packets=\K[0-9]+' || echo 0)
+    local b=$(echo "$stats" | grep -oP 'n_bytes=\K[0-9]+' || echo 0)
+    echo "$p $b"
 }
 
-get_tc_drops () {
+get_tx_stats() {
+    local stats=$(sudo ovs-vsctl get interface "$1" statistics 2>/dev/null)
+    local p=$(echo "$stats" | grep -oP 'tx_packets=\K[0-9]+' || echo 0)
+    local b=$(echo "$stats" | grep -oP 'tx_bytes=\K[0-9]+' || echo 0)
+    echo "$p $b"
+}
+
+get_drops() {
     echo $(sudo tc -s filter show dev "$1" parent ffff: 2>/dev/null | grep -oP 'dropped \K[0-9]+' | head -n 1 || echo 0)
 }
 
-calc_throughput_metrics () {
-    python3 -c "
+# --- 4. INISIALISASI ---
+declare -A PREV_RX_P PREV_RX_B PREV_TX_P PREV_TX_B PREV_DRP
+for name in "${IF_NAMES[@]}"; do
+    idx=$(echo ${IF_NAMES[@]/$name//} | cut -d/ -f1 | wc -w | xargs)
+    ip=${IF_IPS[$idx]}
+    read PREV_RX_P[$name] PREV_RX_B[$name] <<< $(get_rx_stats "$BRIDGE" "$ip")
+    read PREV_TX_P[$name] PREV_TX_B[$name] <<< $(get_tx_stats "$name")
+    PREV_DRP[$name]=$(get_drops "$name")
+done
+
+echo "------------------------------------------------------------------------------------------------"
+echo " Monitoring Started | Interval: $INTERVAL detik | Output: $OUT_CSV"
+echo "------------------------------------------------------------------------------------------------"
+
+# --- 5. LOOP UTAMA ---
+while true; do
+    # Tunggu di awal atau akhir loop
+    sleep "$INTERVAL"
+    
+    TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    ROW="$TS"
+    
+    echo ""
+    echo "[$TS] - Window 10 Seconds"
+    printf "%-12s | %-10s | %-12s | %-12s | %-8s\n" "Interface" "Util (%)" "Recv(Total)" "Drop(Total)" "Rate(Mbps)"
+    echo "-------------|------------|--------------|--------------|----------"
+
+    for i in "${!IF_NAMES[@]}"; do
+        NAME=${IF_NAMES[$i]}
+        IP=${IF_IPS[$i]}
+        
+        # Ambil data terbaru
+        read CUR_RX_P CUR_RX_B <<< $(get_rx_stats "$BRIDGE" "$IP")
+        read CUR_TX_P CUR_TX_B <<< $(get_tx_stats "$NAME")
+        CUR_DRP=$(get_drops "$NAME")
+        
+        POL_RATE=$(sudo ovs-vsctl get interface "$NAME" ingress_policing_rate || echo 0)
+        PRIO=$(sudo ovs-vsctl get interface "$NAME" external_ids:priority | tr -d '"' || echo 0)
+        POL_BURST=$(sudo ovs-vsctl get interface "$NAME" ingress_policing_burst || echo 0)
+
+        # Kalkulasi via Python (menghitung delta dan rate)
+        RES=$(python3 -c "
 import sys
 try:
-    # d = [rxp, rxp_o, rxb, rxb_o, interval, rate_limit, drops, fallback_size]
     d = list(map(float, sys.argv[1:]))
-    interval, rate_limit, drops, fallback_size = d[4], d[5], d[6], d[7]
+    interval, rate_kbps = d[10], d[11]
     
-    rx_packets = (d[0] - d[1])
-    rx_bytes = (d[2] - d[3])
+    # Delta (Total paket dalam 10 detik)
+    rx_pkts_total = d[0] - d[1]
+    rx_bytes_total = d[2] - d[3]
+    tx_pkts_total = d[4] - d[5]
+    tx_bytes_total = d[6] - d[7]
+    drops_total = max(0, d[8] - d[9])
     
-    rx_pps = rx_packets / interval
-    rx_mbps = (rx_bytes * 8.0) / (interval * 1000000.0)
+    # Rate (Per detik)
+    rx_pps = rx_pkts_total / interval
+    rx_mbps = (rx_bytes_total * 8) / (interval * 1000000.0)
+    tx_pps = tx_pkts_total / interval
+    tx_mbps = (tx_bytes_total * 8) / (interval * 1000000.0)
     
-    # Estimasi ukuran paket
-    avg_size = (rx_bytes / rx_packets) if rx_packets > 0 else fallback_size
+    avg_rx = rx_bytes_total / rx_pkts_total if rx_pkts_total > 0 else 0
+    rate_mbps = rate_kbps / 1000.0
+    util = (rx_mbps / rate_mbps * 100.0) if rate_mbps > 0 else 0
     
-    # Demand tetap dihitung untuk info beban
-    demand_mbps = rx_mbps + ((drops * avg_size * 8.0) / (interval * 1000000.0))
-    
-    # --- RUMUS BARU: UTILISASI BASED ON RECEIVED ---
-    # Konversi rate_limit (kbps) ke Mbps
-    cap_mbps = (rate_limit / 1000.0) if rate_limit > 0 else 1.0
-    util_rx = (rx_mbps / cap_mbps) * 100.0
-    
-    total_sent_pps = rx_pps + (drops / interval)
-    loss_pct = ((drops / interval) / total_sent_pps * 100.0) if total_sent_pps > 0 else 0
-    
-    print(f'{rx_mbps:.4f},{demand_mbps:.4f},{rx_pps:.2f},{util_rx:.2f},{loss_pct:.2f}')
-except:
-    print('0,0,0,0,0')
-" "$@"
-}
+    # Output order: rx_mbps, tx_mbps, rx_pps, tx_pps, avg_rx, util, drops_total, rx_pkts_total
+    print(f'{rx_mbps:.4f},{tx_mbps:.4f},{rx_pps:.2f},{tx_pps:.2f},{avg_rx:.2f},{util:.2f},{int(drops_total)},{int(rx_pkts_total)}')
+except Exception as e:
+    print('0,0,0,0,0,0,0,0')
+" "$CUR_RX_P" "${PREV_RX_P[$NAME]}" "$CUR_RX_B" "${PREV_RX_B[$NAME]}" \
+  "$CUR_TX_P" "${PREV_TX_P[$NAME]}" "$CUR_TX_B" "${PREV_TX_B[$NAME]}" \
+  "$CUR_DRP" "${PREV_DRP[$NAME]}" "$INTERVAL" "$POL_RATE")
 
-# --- 4. MAIN LOOP ---
-read p1_rxp_o p1_rxb_o <<< $(get_clean_ovs_stats "$BRIDGE" "$P1_IP")
-p1_drp_o=$(get_tc_drops "$IF_P1")
-read p2_rxp_o p2_rxb_o <<< $(get_clean_ovs_stats "$BRIDGE" "$P2_IP")
-p2_drp_o=$(get_tc_drops "$IF_P2")
-read p4_rxp_o p4_rxb_o <<< $(get_clean_ovs_stats "$BRIDGE" "$P4_IP")
-p4_drp_o=$(get_tc_drops "$IF_P4")
+        # Parsing hasil Python untuk terminal
+        UTIL=$(echo $RES | cut -d',' -f6)
+        TOTAL_DROP=$(echo $RES | cut -d',' -f7)
+        TOTAL_RECV=$(echo $RES | cut -d',' -f8)
+        RATE_MBPS=$(echo $RES | cut -d',' -f1)
 
-while true; do
-    TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
-    read p1_rxp p1_rxb <<< $(get_clean_ovs_stats "$BRIDGE" "$P1_IP"); p1_drp=$(get_tc_drops "$IF_P1")
-    read p2_rxp p2_rxb <<< $(get_clean_ovs_stats "$BRIDGE" "$P2_IP"); p2_drp=$(get_tc_drops "$IF_P2")
-    read p4_rxp p4_rxb <<< $(get_clean_ovs_stats "$BRIDGE" "$P4_IP"); p4_drp=$(get_tc_drops "$IF_P4")
+        # Print ke Terminal
+        printf "%-12s | %-10s | %-12s | %-12s | %-8s\n" "$NAME" "$UTIL" "$TOTAL_RECV" "$TOTAL_DROP" "$RATE_MBPS"
 
-    d1=$((p1_drp-p1_drp_o)); d2=$((p2_drp-p2_drp_o)); d4=$((p4_drp-p4_drp_o))
-    [ $d1 -lt 0 ] && d1=0; [ $d2 -lt 0 ] && d2=0; [ $d4 -lt 0 ] && d4=0
+        # Simpan ke CSV (hanya kolom yang didefinisikan di header awal)
+        # Note: Kita ambil 7 nilai pertama dari RES (sampai drop) + delay log data
+        CSV_VALS=$(echo $RES | cut -d',' -f1-7)
+        
+        DELAY_DATA=$(tail -n 20 "$DELAY_LOG" 2>/dev/null | grep "$NAME" | tail -n 1 || echo "0,0,0,0,0,0")
+        LAST_DELAY=$(echo "$DELAY_DATA" | awk -F',' '{print $6}' || echo 0)
+        LAST_PAYLOAD=$(echo "$DELAY_DATA" | awk -F',' '{print $5}' || echo 0)
 
-    # Mengambil nilai rate langsung dari OVS
-    r1=$(sudo ovs-vsctl get interface "$IF_P1" ingress_policing_rate 2>/dev/null || echo 0)
-    r2=$(sudo ovs-vsctl get interface "$IF_P2" ingress_policing_rate 2>/dev/null || echo 0)
-    r4=$(sudo ovs-vsctl get interface "$IF_P4" ingress_policing_rate 2>/dev/null || echo 0)
+        ROW+=",$CSV_VALS,$LAST_DELAY,$LAST_PAYLOAD,$PRIO,$POL_RATE,$POL_BURST"
 
-    # Kalkulasi
-    m1=$(calc_throughput_metrics "$p1_rxp" "$p1_rxp_o" "$p1_rxb" "$p1_rxb_o" "$INTERVAL" "$r1" "$d1" "150")
-    m2=$(calc_throughput_metrics "$p2_rxp" "$p2_rxp_o" "$p2_rxb" "$p2_rxb_o" "$INTERVAL" "$r2" "$d2" "1200")
-    m4=$(calc_throughput_metrics "$p4_rxp" "$p4_rxp_o" "$p4_rxb" "$p4_rxb_o" "$INTERVAL" "$r4" "$d4" "150")
+        # Update History
+        PREV_RX_P[$NAME]=$CUR_RX_P; PREV_RX_B[$NAME]=$CUR_RX_B
+        PREV_TX_P[$NAME]=$CUR_TX_P; PREV_TX_B[$NAME]=$CUR_TX_B
+        PREV_DRP[$NAME]=$CUR_DRP
+    done
 
-    echo "$TS,$m1,$d1,$m2,$d2,$m4,$d4" >> "$OUT"
-
-    # LOG TERMINAL
-    printf "[%s] | Throughput Mode (Util = Recv/Rate)\n" "$TS"
-    a1=$(echo $m1 | tr ',' ' '); printf "  P1 (DHT11)  | Recv: %-7s pps (%-6s Mbps) | Util: %-8s%% | Demand: %-6s Mbps | Drop: %-6s\n" $(echo $a1 | awk '{print $3, $1, $4, $2}') "$d1"
-    a2=$(echo $m2 | tr ',' ' '); printf "  P2 (Camera) | Recv: %-7s pps (%-6s Mbps) | Util: %-8s%% | Demand: %-6s Mbps | Drop: %-6s\n" $(echo $a2 | awk '{print $3, $1, $4, $2}') "$d2"
-    a4=$(echo $m4 | tr ',' ' '); printf "  P4 (Medical)| Recv: %-7s pps (%-6s Mbps) | Util: %-8s%% | Demand: %-6s Mbps | Drop: %-6s\n" $(echo $a4 | awk '{print $3, $1, $4, $2}') "$d4"
-    echo "-------------------------------------------------------------------------------------------------------"
-
-    p1_rxp_o=$p1_rxp; p1_rxb_o=$p1_rxb; p1_drp_o=$p1_drp
-    p2_rxp_o=$p2_rxp; p2_rxb_o=$p2_rxb; p2_drp_o=$p2_drp
-    p4_rxp_o=$p4_rxp; p4_rxb_o=$p4_rxb; p4_drp_o=$p4_drp
-    sleep "$INTERVAL"
+    echo "$ROW" >> "$OUT_CSV"
 done
