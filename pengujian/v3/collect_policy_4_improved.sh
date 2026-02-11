@@ -1,0 +1,268 @@
+#!/bin/bash
+# collect_policy_4_improved.sh - Dengan Pre-flight Check untuk Ghost Packets
+set -e
+
+# --- 1. KONFIGURASI ---
+BRIDGE="br0"
+INTERVAL=10
+OUT_CSV="dataset_dqn_final.csv"
+DELAY_LOG="/home/ovs/sdn-iot/pengujian/delay_log.csv"
+
+# Definisi Interface & IP (P1=dht11, P2=camera, P4=max)
+IF_NAMES=("dht11" "camera" "max")
+IF_IPS=("192.168.15.238" "192.168.15.239" "192.168.15.240")
+IF_KEYS=("p1" "p2" "p4")
+
+# --- 2. PRE-FLIGHT CHECK ---
+echo "=========================================="
+echo "  Pre-flight Validation"
+echo "=========================================="
+
+# Check if listener is running
+if ! pgrep -f "udp_listener_v2.py" > /dev/null; then
+    echo "❌ ERROR: UDP Listener not running!"
+    echo "Please start: python3 udp_listener_v2.py"
+    exit 1
+fi
+echo "✓ UDP Listener is running"
+
+# Check if sender is running
+if ! pgrep -f "allport.py" > /dev/null; then
+    echo "⚠️  WARNING: Sender (allport.py) not running"
+    read -p "Continue anyway? [y/N]: " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+else
+    echo "✓ Sender is running"
+fi
+
+# Check if delay log exists and is being updated
+if [ ! -f "$DELAY_LOG" ]; then
+    echo "⚠️  WARNING: Delay log not found at $DELAY_LOG"
+else
+    LAST_MODIFIED=$(stat -c %Y "$DELAY_LOG" 2>/dev/null || echo 0)
+    NOW=$(date +%s)
+    AGE=$((NOW - LAST_MODIFIED))
+    
+    if [ $AGE -gt 30 ]; then
+        echo "⚠️  WARNING: Delay log hasn't been updated in $AGE seconds"
+        echo "   This might indicate listener/sender issues"
+        read -p "Continue anyway? [y/N]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        echo "✓ Delay log is actively updated (${AGE}s ago)"
+    fi
+fi
+
+# Validate baseline traffic
+echo ""
+echo "Checking for baseline traffic (5 seconds)..."
+
+declare -A BASELINE_PKTS
+
+for i in "${!IF_IPS[@]}"; do
+    NAME=${IF_NAMES[$i]}
+    IP=${IF_IPS[$i]}
+    
+    STATS=$(sudo ovs-ofctl dump-flows "$BRIDGE" "udp,nw_dst=$IP,tp_dst=9999" 2>/dev/null | grep "n_bytes" || echo "")
+    if [ -n "$STATS" ]; then
+        BASELINE_PKTS[$NAME]=$(echo "$STATS" | grep -oP 'n_packets=\K[0-9]+' || echo 0)
+    else
+        BASELINE_PKTS[$NAME]=0
+    fi
+done
+
+sleep 5
+
+TRAFFIC_DETECTED=0
+for i in "${!IF_IPS[@]}"; do
+    NAME=${IF_NAMES[$i]}
+    IP=${IF_IPS[$i]}
+    
+    STATS=$(sudo ovs-ofctl dump-flows "$BRIDGE" "udp,nw_dst=$IP,tp_dst=9999" 2>/dev/null | grep "n_bytes" || echo "")
+    if [ -n "$STATS" ]; then
+        CURRENT_PKTS=$(echo "$STATS" | grep -oP 'n_packets=\K[0-9]+' || echo 0)
+    else
+        CURRENT_PKTS=0
+    fi
+    
+    DELTA=$((CURRENT_PKTS - BASELINE_PKTS[$NAME]))
+    
+    if [ $DELTA -gt 0 ]; then
+        echo "✓ $NAME: Active traffic detected (+$DELTA packets)"
+        TRAFFIC_DETECTED=1
+    else
+        echo "⚠️  $NAME: No traffic detected"
+    fi
+done
+
+if [ $TRAFFIC_DETECTED -eq 0 ]; then
+    echo ""
+    echo "❌ ERROR: No active traffic detected on any interface!"
+    echo "   Possible causes:"
+    echo "   - Sender not running properly"
+    echo "   - Wrong IP configuration"
+    echo "   - OVS flows not installed"
+    echo ""
+    echo "Run diagnostics:"
+    echo "   sudo ovs-ofctl dump-flows $BRIDGE"
+    exit 1
+fi
+
+echo ""
+echo "✓ Pre-flight check passed!"
+echo "=========================================="
+echo ""
+sleep 2
+
+# --- 3. HEADER CSV ---
+HEADER="timestamp"
+for p in "${IF_KEYS[@]}"; do
+    HEADER+=",rx_mbps_$p,tx_mbps_$p,rx_pps_$p,tx_pps_$p,avg_rx_pkt_bytes_$p,util_rx_pct_$p,drop_$p,delay_ms_$p,last_payload_bytes_$p,priority_tag_$p,policing_rate_kbps_$p,policing_burst_kbps_$p"
+done
+
+# Only create new CSV if it doesn't exist or ask to overwrite
+if [ -f "$OUT_CSV" ]; then
+    echo "⚠️  Output file already exists: $OUT_CSV"
+    read -p "Overwrite? [y/N]: " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "$HEADER" > "$OUT_CSV"
+        echo "✓ CSV overwritten with new header"
+    else
+        echo "✓ Appending to existing CSV"
+    fi
+else
+    echo "$HEADER" > "$OUT_CSV"
+    echo "✓ New CSV created"
+fi
+
+# --- 4. FUNGSI HELPER ---
+get_rx_stats() {
+    local stats=$(sudo ovs-ofctl dump-flows "$1" "udp,nw_dst=$2,tp_dst=9999" 2>/dev/null | grep "n_bytes")
+    local p=$(echo "$stats" | grep -oP 'n_packets=\K[0-9]+' || echo 0)
+    local b=$(echo "$stats" | grep -oP 'n_bytes=\K[0-9]+' || echo 0)
+    echo "$p $b"
+}
+
+get_tx_stats() {
+    local stats=$(sudo ovs-vsctl get interface "$1" statistics 2>/dev/null)
+    local p=$(echo "$stats" | grep -oP 'tx_packets=\K[0-9]+' || echo 0)
+    local b=$(echo "$stats" | grep -oP 'tx_bytes=\K[0-9]+' || echo 0)
+    echo "$p $b"
+}
+
+get_drops() {
+    echo $(sudo tc -s filter show dev "$1" parent ffff: 2>/dev/null | grep -oP 'dropped \K[0-9]+' | head -n 1 || echo 0)
+}
+
+# --- 5. INISIALISASI ---
+declare -A PREV_RX_P PREV_RX_B PREV_TX_P PREV_TX_B PREV_DRP
+for name in "${IF_NAMES[@]}"; do
+    idx=$(echo ${IF_NAMES[@]/$name//} | cut -d/ -f1 | wc -w | xargs)
+    ip=${IF_IPS[$idx]}
+    read PREV_RX_P[$name] PREV_RX_B[$name] <<< $(get_rx_stats "$BRIDGE" "$ip")
+    read PREV_TX_P[$name] PREV_TX_B[$name] <<< $(get_tx_stats "$name")
+    PREV_DRP[$name]=$(get_drops "$name")
+done
+
+echo "------------------------------------------------------------------------------------------------"
+echo " Monitoring Started | Interval: $INTERVAL detik | Output: $OUT_CSV"
+echo "------------------------------------------------------------------------------------------------"
+
+# --- 6. LOOP UTAMA ---
+ITERATION=0
+while true; do
+    sleep "$INTERVAL"
+    
+    ITERATION=$((ITERATION + 1))
+    TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    ROW="$TS"
+    
+    echo ""
+    echo "[$TS] - Iteration #$ITERATION (Window: ${INTERVAL}s)"
+    printf "%-12s | %-10s | %-12s | %-12s | %-8s\n" "Interface" "Util (%)" "Recv(Total)" "Drop(Total)" "Rate(Mbps)"
+    echo "-------------|------------|--------------|--------------|----------"
+
+    for i in "${!IF_NAMES[@]}"; do
+        NAME=${IF_NAMES[$i]}
+        IP=${IF_IPS[$i]}
+        
+        # Ambil data terbaru
+        read CUR_RX_P CUR_RX_B <<< $(get_rx_stats "$BRIDGE" "$IP")
+        read CUR_TX_P CUR_TX_B <<< $(get_tx_stats "$NAME")
+        CUR_DRP=$(get_drops "$NAME")
+        
+        POL_RATE=$(sudo ovs-vsctl get interface "$NAME" ingress_policing_rate 2>/dev/null || echo 0)
+        PRIO=$(sudo ovs-vsctl get interface "$NAME" external_ids:priority 2>/dev/null | tr -d '"' || echo 0)
+        POL_BURST=$(sudo ovs-vsctl get interface "$NAME" ingress_policing_burst 2>/dev/null || echo 0)
+
+        # Kalkulasi via Python
+        RES=$(python3 -c "
+import sys
+try:
+    d = list(map(float, sys.argv[1:]))
+    interval, rate_kbps = d[10], d[11]
+    
+    # Delta (Total paket dalam interval)
+    rx_pkts_total = d[0] - d[1]
+    rx_bytes_total = d[2] - d[3]
+    tx_pkts_total = d[4] - d[5]
+    tx_bytes_total = d[6] - d[7]
+    drops_total = max(0, d[8] - d[9])
+    
+    # Rate (Per detik)
+    rx_pps = rx_pkts_total / interval
+    rx_mbps = (rx_bytes_total * 8) / (interval * 1000000.0)
+    tx_pps = tx_pkts_total / interval
+    tx_mbps = (tx_bytes_total * 8) / (interval * 1000000.0)
+    
+    avg_rx = rx_bytes_total / rx_pkts_total if rx_pkts_total > 0 else 0
+    rate_mbps = rate_kbps / 1000.0
+    util = (rx_mbps / rate_mbps * 100.0) if rate_mbps > 0 else 0
+    
+    # Output order: rx_mbps, tx_mbps, rx_pps, tx_pps, avg_rx, util, drops_total, rx_pkts_total
+    print(f'{rx_mbps:.4f},{tx_mbps:.4f},{rx_pps:.2f},{tx_pps:.2f},{avg_rx:.2f},{util:.2f},{int(drops_total)},{int(rx_pkts_total)}')
+except Exception as e:
+    print('0,0,0,0,0,0,0,0')
+" "$CUR_RX_P" "${PREV_RX_P[$NAME]}" "$CUR_RX_B" "${PREV_RX_B[$NAME]}" \
+  "$CUR_TX_P" "${PREV_TX_P[$NAME]}" "$CUR_TX_B" "${PREV_TX_B[$NAME]}" \
+  "$CUR_DRP" "${PREV_DRP[$NAME]}" "$INTERVAL" "$POL_RATE")
+
+        # Parsing hasil Python untuk terminal
+        UTIL=$(echo $RES | cut -d',' -f6)
+        TOTAL_DROP=$(echo $RES | cut -d',' -f7)
+        TOTAL_RECV=$(echo $RES | cut -d',' -f8)
+        RATE_MBPS=$(echo $RES | cut -d',' -f1)
+
+        # Print ke Terminal
+        printf "%-12s | %-10s | %-12s | %-12s | %-8s\n" "$NAME" "$UTIL" "$TOTAL_RECV" "$TOTAL_DROP" "$RATE_MBPS"
+
+        # Simpan ke CSV
+        CSV_VALS=$(echo $RES | cut -d',' -f1-7)
+        
+        DELAY_DATA=$(tail -n 20 "$DELAY_LOG" 2>/dev/null | grep "$NAME" | tail -n 1 || echo "0,0,0,0,0,0")
+        LAST_DELAY=$(echo "$DELAY_DATA" | awk -F',' '{print $6}' || echo 0)
+        LAST_PAYLOAD=$(echo "$DELAY_DATA" | awk -F',' '{print $5}' || echo 0)
+
+        ROW+=",$CSV_VALS,$LAST_DELAY,$LAST_PAYLOAD,$PRIO,$POL_RATE,$POL_BURST"
+
+        # Update History
+        PREV_RX_P[$NAME]=$CUR_RX_P; PREV_RX_B[$NAME]=$CUR_RX_B
+        PREV_TX_P[$NAME]=$CUR_TX_P; PREV_TX_B[$NAME]=$CUR_TX_B
+        PREV_DRP[$NAME]=$CUR_DRP
+    done
+
+    echo "$ROW" >> "$OUT_CSV"
+    
+    # Periodic health check every 10 iterations
+    if [ $((ITERATION % 10)) -eq 0 ]; then
+        echo ""
+        echo "✓ Health check (iteration #$ITERATION): Dataset saved to $OUT_CSV"
+    fi
+done
