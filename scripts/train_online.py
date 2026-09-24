@@ -362,6 +362,11 @@ def main():
     e.add_argument("--action-gain", type=float, default=0.20)
     e.add_argument("--episode-len", type=int, default=200)
     e.add_argument("--eval-episodes", type=int, default=20)
+    e.add_argument("--demand-source", default="full", choices=["full", "train"],
+                   help="which slice of the trace demand_prop averages over. 'full' is what "
+                        "the frozen sweep used and includes the evaluated rows; 'train' uses "
+                        "only the first --train-frac of the trace.")
+    e.add_argument("--train-frac", type=float, default=0.8)
 
     h = p.add_argument_group("hyperparameters (identical across methods)")
     h.add_argument("--lr", type=float, default=3e-4)
@@ -387,7 +392,11 @@ def main():
     device = torch.device(args.device)
 
     arrivals = load_arrival_trace()
-    mean_demand = arrivals.mean(axis=0)
+    if args.demand_source == "train":
+        cut = int(len(arrivals) * args.train_frac)
+        mean_demand = arrivals[:cut].mean(axis=0)
+    else:
+        mean_demand = arrivals.mean(axis=0)
     env = SliceEnv(arrivals, link_capacity_mbps=args.capacity, buffer_ms=args.buffer_ms,
                    action_gain=args.action_gain, episode_len=args.episode_len, seed=args.seed)
     norm = Normalizer(env)

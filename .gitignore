@@ -26,3 +26,4 @@ revisi/paper/*.out
 revisi/paper/preview/
 revisi/files/*.zip
 revisi/**/desktop.ini
+results/diagnostic/**/*_eval.csv
