@@ -94,6 +94,8 @@ class SliceEnv:
         sla_ms=None,
         episode_len=200,
         seed=0,
+        random_init_alloc=False,
+        reward_scale=1.0,
     ):
         self.arrivals = np.asarray(arrivals, dtype=float)
         if self.arrivals.ndim != 2 or self.arrivals.shape[1] != len(PORTS):
@@ -105,6 +107,11 @@ class SliceEnv:
         self.action_gain = float(action_gain)
         self.sla = dict(DEFAULT_SLA_MS if sla_ms is None else sla_ms)
         self.episode_len = int(episode_len)
+        self.random_init_alloc = bool(random_init_alloc)
+        # Divides the raw reward. One fixed scalar, estimated once on the train
+        # split under a reference policy and shared by every method, so no
+        # algorithm gets a better-conditioned objective than another.
+        self.reward_scale = float(reward_scale)
         self.rng = np.random.default_rng(seed)
 
         self.n = len(PORTS)
@@ -136,7 +143,15 @@ class SliceEnv:
         self.start = int(self.rng.integers(0, max(1, len(self.arrivals) - self.episode_len))) \
             if start is None else int(start)
         self.backlog = np.zeros(self.n)           # Mb
-        self.rates = self._project(np.full(self.n, self.C / self.n))
+        if self.random_init_alloc:
+            # A uniform start makes no_control, const_max and equal_split
+            # produce identical allocations, because the action is a relative
+            # change projected back onto the capacity simplex -- so a uniform
+            # action is a no-op. Randomising the start separates them.
+            w = self.rng.dirichlet(np.ones(self.n))
+            self.rates = self._project(w * self.C)
+        else:
+            self.rates = self._project(np.full(self.n, self.C / self.n))
         self.delay_ms = np.zeros(self.n)
         self.drop = np.zeros(self.n)
         return self._obs()
@@ -191,7 +206,7 @@ class SliceEnv:
         ratio = np.array([self.delay_ms[i] / self.sla[p] for i, p in enumerate(PORTS)])
         delay_pen = np.sum(np.maximum(0.0, ratio - 1.0))
         drop_pen = float(self.drop.sum())
-        return -(delay_pen + drop_pen)
+        return -(delay_pen + drop_pen) / self.reward_scale
 
 
 # --------------------------------------------------------------------------

@@ -48,13 +48,17 @@ from slice_env import PORTS, SliceEnv, load_arrival_trace  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LEARNERS = ["ppo", "sdhppo", "dqn", "ddqn"]
-HEURISTICS = ["no_control", "const_max", "threshold", "demand_prop"]
+HEURISTICS = ["no_control", "const_max", "threshold", "demand_prop", "equal_split"]
 ALGOS = LEARNERS + HEURISTICS
-ARMS = ["full", "no_mask", "no_dueling"]
+# no_mask is V1-only; V2 expresses the safety layer as the orthogonal --safety
+# factor so every method can be run with and without it.
+ARMS = ["full", "no_mask", "no_dueling", "real_only", "aug_subsample"]
+PHASES = ["train", "val", "test"]
 
 LABEL = {
     "sdhppo": "Proposed (SDH-PPO)", "ppo": "PPO Standard", "dqn": "DQN", "ddqn": "DDQN",
     "no_control": "No Control", "const_max": "Const Max", "threshold": "Threshold",
+    "equal_split": "Equal Split",
     "demand_prop": "Demand Proportional",
 }
 
@@ -141,15 +145,24 @@ class BranchingQ(nn.Module):
 
 
 # ---------------------------------------------------------------- heuristics
+def _toward(env, target):
+    """Action that moves the current rates toward `target` in one step."""
+    return np.clip((target - env.rates) / (env.action_gain * np.maximum(env.rates, 1e-9)), -1, 1)
+
+
 def heuristic_action(algo, env, mean_demand):
     n = env.n
     if algo == "no_control":
         return np.zeros(n)
+    if algo == "equal_split":
+        return _toward(env, np.full(n, env.C / n))
     if algo == "const_max":
+        # Retained only to reproduce V1. Under a relative action projected onto
+        # the capacity simplex a uniform action is a no-op, so this is
+        # identical to no_control; excluded from the V2 design.
         return np.ones(n)
     if algo == "demand_prop":
-        target = mean_demand / mean_demand.sum() * env.C
-        return np.clip((target - env.rates) / (env.action_gain * np.maximum(env.rates, 1e-9)), -1, 1)
+        return _toward(env, mean_demand / mean_demand.sum() * env.C)
     if algo == "threshold":
         # Act in proportion to how far each slice is past its own SLA.
         ratio = np.array([env.delay_ms[i] / env.sla[p] for i, p in enumerate(PORTS)])
@@ -172,7 +185,20 @@ def safety_mask(action, env, margin=0.8, gain=2.0):
 
 
 # ---------------------------------------------------------------- PPO family
-def run_ppo(args, env, norm, device, dueling, use_mask):
+def probe(policy, env, norm, episodes, ep_len):
+    """Short evaluation used to trace a validation curve during training."""
+    tot, viol = [], []
+    for _ in range(episodes):
+        s = norm(env.reset())
+        for _ in range(ep_len):
+            ns, r, _, info = env.step(policy(env, s))
+            tot.append(r)
+            viol.append(info["violation"].mean())
+            s = norm(ns)
+    return float(np.mean(tot)), float(np.mean(viol) * 100)
+
+
+def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None):
     sd, ad = env.state_dim, env.action_dim
     actor = Actor(sd, ad).to(device)
     critic = Critic(sd, dueling=dueling).to(device)
@@ -241,9 +267,17 @@ def run_ppo(args, env, norm, device, dueling, use_mask):
 
         with torch.no_grad():
             clipped = ((ratio - 1).abs() > args.clip_eps).float().mean().item()
-        log.append({"step": steps_done, "loss_actor": loss_a.item(), "loss_critic": loss_c.item(),
-                    "entropy": ent.item(), "mean_reward": float(np.mean(R)),
-                    "clip_fraction": clipped})
+        rec = {"step": steps_done, "loss_actor": loss_a.item(), "loss_critic": loss_c.item(),
+               "entropy": ent.item(), "mean_reward": float(np.mean(R)),
+               "clip_fraction": clipped}
+        if val_probe is not None:
+            def _pol(e, st):
+                with torch.no_grad():
+                    mu, _ = actor(torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0))
+                a = mu.squeeze(0).cpu().numpy()
+                return safety_mask(a, e) if use_mask else a
+            rec["val_reward"], rec["val_viol"] = val_probe(_pol)
+        log.append(rec)
 
     def policy(e, st):
         with torch.no_grad():
@@ -255,7 +289,7 @@ def run_ppo(args, env, norm, device, dueling, use_mask):
 
 
 # ---------------------------------------------------------------- DQN family
-def run_dqn(args, env, norm, device, double, dueling):
+def run_dqn(args, env, norm, device, double, dueling, use_mask=False, val_probe=None):
     sd, nb = env.state_dim, env.action_dim
     bins = np.linspace(-1.0, 1.0, args.bins)
     q = BranchingQ(sd, nb, args.bins, dueling=dueling).to(device)
@@ -274,7 +308,11 @@ def run_dqn(args, env, norm, device, double, dueling):
             with torch.no_grad():
                 ai = q(torch.as_tensor(s, dtype=torch.float32, device=device).unsqueeze(0)
                        ).squeeze(0).argmax(dim=-1).cpu().numpy()
+        # The discrete choice is decoded to a continuous vector first, so the
+        # identical safety_mask used by the PPO arms applies unchanged.
         act = bins[ai]
+        if use_mask:
+            act = safety_mask(act, env)
         ns, r, done, _ = env.step(act)
         ns_n = norm(ns)
         buf.append((s, ai, r, ns_n, float(done)))
@@ -304,14 +342,24 @@ def run_dqn(args, env, norm, device, double, dueling):
             if step % args.target_sync == 0:
                 tgt.load_state_dict(q.state_dict())
             if step % (args.train_every * 50) == 0:
-                log.append({"step": step, "loss": loss.item(), "epsilon": eps,
-                            "q_mean": qv.mean().item()})
+                rec = {"step": step, "loss": loss.item(), "epsilon": eps,
+                       "q_mean": qv.mean().item()}
+                if val_probe is not None and step % args.eval_every == 0:
+                    def _pol(e, st):
+                        with torch.no_grad():
+                            ai = q(torch.as_tensor(st, dtype=torch.float32, device=device
+                                                   ).unsqueeze(0)).squeeze(0).argmax(-1).cpu().numpy()
+                        a = bins[ai]
+                        return safety_mask(a, e) if use_mask else a
+                    rec["val_reward"], rec["val_viol"] = val_probe(_pol)
+                log.append(rec)
 
     def policy(e, st):
         with torch.no_grad():
             ai = q(torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0)
                    ).squeeze(0).argmax(dim=-1).cpu().numpy()
-        return bins[ai]
+        a = bins[ai]
+        return safety_mask(a, e) if use_mask else a
 
     return policy, pd.DataFrame(log)
 
@@ -362,6 +410,29 @@ def main():
     e.add_argument("--action-gain", type=float, default=0.20)
     e.add_argument("--episode-len", type=int, default=200)
     e.add_argument("--eval-episodes", type=int, default=20)
+    e.add_argument("--phase", default=None, choices=PHASES,
+                   help="V2: which split to train and evaluate on. Omit for V1 behaviour "
+                        "(whole trace, no split).")
+    e.add_argument("--split", default="0.6,0.2,0.2", help="train,val,test fractions")
+    e.add_argument("--eval-phase", default=None, choices=PHASES,
+                   help="split to evaluate on; defaults to --phase. The pilot trains on train "
+                        "and evaluates on val.")
+    e.add_argument("--allow-test", action="store_true",
+                   help="required guard for --phase test; the test split is touched once, "
+                        "in the final V2 run only")
+    e.add_argument("--safety", default=None, choices=["on", "off"],
+                   help="V2: safety layer as an orthogonal factor, applied to every method "
+                        "including discrete and heuristic ones. Omit for V1 behaviour "
+                        "(layer only on sdhppo).")
+    e.add_argument("--eval-every", type=int, default=0,
+                   help="probe the eval split every N steps to trace a validation curve; "
+                        "0 disables. Used by the pilot to pick the step budget.")
+    e.add_argument("--probe-episodes", type=int, default=5)
+    e.add_argument("--reward-scale", type=float, default=1.0,
+                   help="divides the raw reward; one shared constant, see protocol v2")
+    e.add_argument("--random-init-alloc", action="store_true",
+                   help="V2: randomise the initial allocation so no_control, equal_split and "
+                        "const_max stop collapsing onto the same policy")
     e.add_argument("--demand-source", default="full", choices=["full", "train"],
                    help="which slice of the trace demand_prop averages over. 'full' is what "
                         "the frozen sweep used and includes the evaluated rows; 'train' uses "
@@ -391,15 +462,54 @@ def main():
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
 
-    arrivals = load_arrival_trace()
-    if args.demand_source == "train":
-        cut = int(len(arrivals) * args.train_frac)
-        mean_demand = arrivals[:cut].mean(axis=0)
+    full_trace = load_arrival_trace()
+
+    eval_phase = args.eval_phase or args.phase
+    if args.phase is None:                       # V1 behaviour: no split at all
+        arrivals = eval_arrivals = full_trace
+        train_slice = full_trace
     else:
-        mean_demand = arrivals.mean(axis=0)
+        if "test" in (args.phase, eval_phase) and not args.allow_test:
+            raise SystemExit("touching the test split requires --allow-test. It is reserved "
+                             "for the single final V2 run.")
+        f_tr, f_va, _ = (float(x) for x in args.split.split(","))
+        n = len(full_trace)
+        a, b = int(n * f_tr), int(n * (f_tr + f_va))
+        cuts = {"train": (0, a), "val": (a, b), "test": (b, n)}
+        lo, hi = cuts[args.phase]
+        arrivals = full_trace[lo:hi]
+        lo, hi = cuts[eval_phase]
+        eval_arrivals = full_trace[lo:hi]
+        train_slice = full_trace[:a]             # statistics always come from train
+
+    # demand_prop's mean and every normalisation constant are estimated on train
+    # only, never on the split being evaluated.
+    if args.phase is not None or args.demand_source == "train":
+        mean_demand = train_slice.mean(axis=0)
+    else:
+        mean_demand = full_trace.mean(axis=0)
     env = SliceEnv(arrivals, link_capacity_mbps=args.capacity, buffer_ms=args.buffer_ms,
-                   action_gain=args.action_gain, episode_len=args.episode_len, seed=args.seed)
+                   action_gain=args.action_gain, episode_len=args.episode_len, seed=args.seed,
+                   random_init_alloc=args.random_init_alloc, reward_scale=args.reward_scale)
     norm = Normalizer(env)
+
+    # V1: only sdhppo carried the safety layer, which the diagnostics showed was
+    # the single largest contributor. V2 makes it an explicit factor applied to
+    # every method, so the comparison is like for like.
+    if args.safety is None:
+        want_mask = args.algo == "sdhppo" and args.arm != "no_mask"
+    else:
+        want_mask = args.safety == "on"
+
+    eval_env = SliceEnv(eval_arrivals, link_capacity_mbps=args.capacity,
+                        buffer_ms=args.buffer_ms, action_gain=args.action_gain,
+                        episode_len=args.episode_len, seed=args.seed,
+                        random_init_alloc=args.random_init_alloc,
+                        reward_scale=args.reward_scale)
+    val_probe = None
+    if args.eval_every > 0:
+        def val_probe(pol):
+            return probe(pol, eval_env, norm, args.probe_episodes, args.episode_len)
 
     started = datetime.now(timezone.utc)
     t0 = time.perf_counter()
@@ -408,23 +518,28 @@ def main():
         train_log = pd.DataFrame()
 
         def policy(e, st):
-            return heuristic_action(args.algo, e, mean_demand)
+            a = heuristic_action(args.algo, e, mean_demand)
+            return safety_mask(a, e) if want_mask else a
     elif args.algo in ("ppo", "sdhppo"):
         dueling = args.algo == "sdhppo" and args.arm != "no_dueling"
-        use_mask = args.algo == "sdhppo" and args.arm != "no_mask"
-        policy, train_log = run_ppo(args, env, norm, device, dueling, use_mask)
+        policy, train_log = run_ppo(args, env, norm, device, dueling, want_mask, val_probe)
     else:
         policy, train_log = run_dqn(args, env, norm, device,
                                     double=args.algo == "ddqn",
-                                    dueling=args.algo == "ddqn" and args.arm != "no_dueling")
+                                    dueling=args.algo == "ddqn" and args.arm != "no_dueling",
+                                    use_mask=want_mask, val_probe=val_probe)
     train_secs = time.perf_counter() - t0
 
     t1 = time.perf_counter()
-    ev = evaluate(policy, env, norm, args.eval_episodes, args.episode_len, args.seed)
+    ev = evaluate(policy, eval_env, norm, args.eval_episodes, args.episode_len, args.seed)
     eval_secs = time.perf_counter() - t1
 
     args.out.mkdir(parents=True, exist_ok=True)
-    stem = f"{args.algo}_{args.arm}_seed{args.seed}"
+    if args.phase is None and args.safety is None:
+        stem = f"{args.algo}_{args.arm}_seed{args.seed}"          # V1 naming, unchanged
+    else:
+        stem = (f"{args.algo}_{args.arm}_{args.phase or 'nosplit'}"
+                f"_safety{'on' if want_mask else 'off'}_seed{args.seed}")
     ev.to_csv(args.out / f"{stem}_eval.csv", index=False)
     if not train_log.empty:
         train_log.to_csv(args.out / f"{stem}_train.csv", index=False)
@@ -436,6 +551,10 @@ def main():
         "grounding": "arrival process replayed from measured rx_mbps (OVS byte counters); "
                      "action->delay relationship is queueing theory, NOT measured",
         "mean_demand_mbps": mean_demand.tolist(),
+        "phase": args.phase, "safety_applied": bool(want_mask),
+        "reward_scale": args.reward_scale,
+        "trace_rows_used": int(len(arrivals)),
+        "stats_estimated_on": "train" if args.phase is not None else args.demand_source,
         "started_utc": started.isoformat(),
         "finished_utc": datetime.now(timezone.utc).isoformat(),
         "train_seconds": round(train_secs, 2), "eval_seconds": round(eval_secs, 2),
