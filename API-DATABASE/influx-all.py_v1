@@ -1,0 +1,95 @@
+from flask import Flask, request, jsonify
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
+
+app = Flask(__name__)
+
+# --- KONFIGURASI INFLUXDB ---
+client = InfluxDBClient(
+    url="http://192.168.10.58:8086/",
+    token="FCYeKuOB9_KN4QAjinRl9YJuJhkmqrs-Aav3ImscqAjLOyVKYTi2nj_HhHkiUFfRUMzvGecWwA_1eMNoVmH1RQ==",
+    org="sdn"
+)
+write_api = client.write_api(write_options=SYNCHRONOUS)
+
+@app.route('/sensor', methods=['POST'])
+def receive_sensor():
+    data = request.json
+    msg_type = data.get('type', 'unknown')
+    
+    # Debug Payload (Biar kelihatan di terminal)
+    # print(f"DEBUG: {data}")
+
+    try:
+        # ======================================================
+        # 1. TRAFFIC STATS (Logic Anda yang SUKSES)
+        # ======================================================
+        if msg_type == 'traffic_stats' or ('rx_bytes' in data and 'tx_bytes' in data):
+            point = Point("network_traffic") \
+                .tag("dpid", str(data.get("dpid", "unknown"))) \
+                .tag("port", str(data.get("port", "unknown"))) \
+                .field("rx_bytes", int(data.get("rx_bytes", 0))) \
+                .field("tx_bytes", int(data.get("tx_bytes", 0)))
+            
+            # Bucket 'monitoring' adalah kunci sukses Anda tadi
+            write_api.write(bucket="monitoring", org="sdn", record=point)
+            return jsonify({"status": "OK (Traffic)"}), 200
+
+        # ======================================================
+        # 2. SENSOR DHT11 (Logic "Anti-Bego" Huruf Besar/Kecil)
+        # ======================================================
+        elif ("Temperature" in data or "temperature" in data):
+            # Ambil key secara aman (Prioritas Besar, Fallback Kecil)
+            temp = data.get("Temperature") 
+            if temp is None: temp = data.get("temperature")
+
+            hum = data.get("Humidity") 
+            if hum is None: hum = data.get("humidity")
+            
+            # Validasi agar tidak None (tapi 0 boleh lewat)
+            if temp is not None and hum is not None:
+                point = Point("iotDHT11_data") \
+                    .tag("device", "dht11") \
+                    .field("temperature", float(temp)) \
+                    .field("humidity", float(hum))
+                
+                write_api.write(bucket="dht11", org="sdn", record=point)
+                return jsonify({"status": "OK (DHT)"}), 200
+            else:
+                return jsonify({"error": "DHT values are None"}), 400
+
+        # ======================================================
+        # 3. SENSOR MAX30102 (Logic "Anti-Bego" Huruf Besar/Kecil)
+        # ======================================================
+        elif ("HeartRate" in data or "heart_rate" in data):
+            hr = data.get("HeartRate")
+            if hr is None: hr = data.get("heart_rate")
+
+            spo2 = data.get("SpO2")
+            if spo2 is None: spo2 = data.get("spo2")
+
+            if hr is not None and spo2 is not None:
+                point = Point("iotHeartRate_data") \
+                    .tag("device", "max30102") \
+                    .field("heart_rate", float(hr)) \
+                    .field("spo2", float(spo2))
+                
+                write_api.write(bucket="max", org="sdn", record=point)
+                return jsonify({"status": "OK (HeartRate)"}), 200
+            else:
+                return jsonify({"error": "HeartRate values are None"}), 400
+
+        # ======================================================
+        # 4. DATA TIDAK DIKENALI
+        # ======================================================
+        else:
+            print(f"⚠️ Warning: Unrecognized data format: {data}")
+            return jsonify({"error": "Unrecognized data keys"}), 400
+            
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    print("⇨ SDN-IoT API Running on Port 5000...")
+    app.run(host="0.0.0.0", port=5000, debug=False)

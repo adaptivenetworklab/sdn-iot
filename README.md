@@ -72,6 +72,4 @@ Include key references, papers, and related work relevant to this research.
 
 ---
 
-Feel free to modify the sections as needed or add more details about your code structure, configurations, or results!
 
-Kalau butuh, gue juga bisa buatkan contoh struktur direktori proyek atau contoh skrip deploy Docker/Kubernetes untuk controller-mu.

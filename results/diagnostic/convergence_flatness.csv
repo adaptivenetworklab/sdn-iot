@@ -1,0 +1,7 @@
+note,algo,metric,seeds,delta_frac_of_range_mean,delta_frac_of_range_std,converged
+DIAGNOSTIC - not for paper,ppo,mean_reward,10,0.519927459747893,0.1733023825822248,False
+DIAGNOSTIC - not for paper,sdhppo,mean_reward,10,0.20169923044472907,0.1041697637117665,False
+DIAGNOSTIC - not for paper,ppo,loss_critic,10,-0.015461092077176436,0.26551983652558964,True
+DIAGNOSTIC - not for paper,sdhppo,loss_critic,10,-0.15626981180752125,0.11246333232167535,False
+DIAGNOSTIC - not for paper,dqn,loss,10,0.07391946400349549,0.03412637618293439,True
+DIAGNOSTIC - not for paper,ddqn,loss,10,0.1067310771746153,0.03155539113465065,False

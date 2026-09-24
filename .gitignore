@@ -1,0 +1,29 @@
+venv/
+venv2/
+yolo_env/
+*.pt
+__pycache__/
+
+Reference/RaftopoulosICNC24.pdf
+Reference/notebook/1745383.pdf
+Reference/notebook/57945.pdf
+Reference/notebook/Peihao25_xSlice_TNET.pdf
+Reference/notebook/RaftopoulosICNC24.pdf
+curve ddqn.png
+curve dqn.png
+curve ppo.png
+curve sdh.png
+port delay track.png
+
+.venv/
+results/raw/*.csv
+results/online/*.csv
+
+# revisi/: LaTeX build artifacts and oversized archives
+revisi/paper/*.aux
+revisi/paper/*.log
+revisi/paper/*.out
+revisi/paper/preview/
+revisi/files/*.zip
+revisi/**/desktop.ini
+results/diagnostic/**/*_eval.csv

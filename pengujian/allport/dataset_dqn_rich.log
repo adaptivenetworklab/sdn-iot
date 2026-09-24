@@ -1,0 +1,20 @@
+[START] 2026-01-19T05:21:01Z bridge=br0 duration=60 interval=3
+[PROGRESS] 2026-01-19T05:21:04Z | Rows: 1 | Util P1: 0.00% | P2: 0.00% | P4: 0.00%
+[PROGRESS] 2026-01-19T05:21:07Z | Rows: 2 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:10Z | Rows: 3 | Util P1: 0.12% | P2: 0.12% | P4: 0.14%
+[PROGRESS] 2026-01-19T05:21:13Z | Rows: 4 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:16Z | Rows: 5 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:20Z | Rows: 6 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:23Z | Rows: 7 | Util P1: 0.12% | P2: 0.12% | P4: 0.14%
+[PROGRESS] 2026-01-19T05:21:26Z | Rows: 8 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:29Z | Rows: 9 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:32Z | Rows: 10 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:36Z | Rows: 11 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:39Z | Rows: 12 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:42Z | Rows: 13 | Util P1: 0.12% | P2: 0.12% | P4: 0.14%
+[PROGRESS] 2026-01-19T05:21:45Z | Rows: 14 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:48Z | Rows: 15 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:51Z | Rows: 16 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:55Z | Rows: 17 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:21:58Z | Rows: 18 | Util P1: 0.12% | P2: 0.12% | P4: 0.15%
+[PROGRESS] 2026-01-19T05:22:01Z | Rows: 19 | Util P1: 0.12% | P2: 0.12% | P4: 0.14%
