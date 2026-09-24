@@ -14,8 +14,15 @@ curve dqn.png
 curve ppo.png
 curve sdh.png
 port delay track.png
-revisi/
 
 .venv/
 results/raw/*.csv
 results/online/*.csv
+
+# revisi/: LaTeX build artifacts and oversized archives
+revisi/paper/*.aux
+revisi/paper/*.log
+revisi/paper/*.out
+revisi/paper/preview/
+revisi/files/*.zip
+revisi/**/desktop.ini
