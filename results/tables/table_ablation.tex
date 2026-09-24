@@ -1,0 +1,14 @@
+\begin{table*}[t]
+\centering
+\caption{Performance comparison in the queueing simulation. Mean over 10 seeds with bootstrap 95\% CI. Lower is better. Delay and violation are per slice; total violation is the mean across slices.}
+\label{tab:3}
+\begin{tabular}{lccccccc}
+\toprule
+Algorithm & P1 Delay (ms) & P1 Viol (\%) & P2 Delay (ms) & P2 Viol (\%) & P4 Delay (ms) & P4 Viol (\%) & Total Viol (\%) \\
+\midrule
+Proposed (SDH-PPO) & 29.48 [26.89, 32.06] & 17.01 [15.06, 19.16] & 79.14 [71.69, 86.52] & 46.28 [40.71, 51.73] & 32.32 [28.81, 36.38] & 21.47 [17.40, 26.58] & 28.25 [25.62, 30.88] \\
+Proposed w/o safety layer & 65.81 [28.34, 104.05] & 34.04 [15.59, 52.86] & 189.27 [175.14, 197.29] & 94.82 [87.98, 98.73] & 35.97 [16.62, 67.62] & 21.47 [11.40, 36.68] & 50.11 [44.17, 56.28] \\
+Proposed w/o dueling critic & 29.51 [27.21, 32.03] & 17.56 [15.15, 20.54] & 73.47 [64.37, 81.49] & 42.34 [35.29, 48.42] & 33.15 [29.52, 36.38] & 23.54 [18.60, 28.65] & 27.81 [24.55, 30.13] \\
+\bottomrule
+\end{tabular}
+\end{table*}

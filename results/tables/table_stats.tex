@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\caption{Significance of total violation rate, Proposed vs each baseline, Holm-corrected (n=10 seeds each).}
+\label{tab:stats}
+\begin{tabular}{lcccl}
+\toprule
+Comparison & $p$ (MWU) & $p$ (Holm) & Effect & Verdict \\
+\midrule
+Proposed vs PPO Standard & 0.0002 & 0.0013 & -1.00 & Proposed better \\
+Proposed vs DDQN & 0.0002 & 0.0013 & -1.00 & Proposed better \\
+Proposed vs DQN & 0.0002 & 0.0013 & -1.00 & Proposed better \\
+Proposed vs Demand Proportional & 0.0002 & 0.0013 & +1.00 & Proposed WORSE \\
+Proposed vs Threshold & 0.0002 & 0.0013 & -1.00 & Proposed better \\
+Proposed vs Const Max & 0.0002 & 0.0013 & -1.00 & Proposed better \\
+Proposed vs No Control & 0.0002 & 0.0013 & -1.00 & Proposed better \\
+\bottomrule
+\end{tabular}
+\end{table}

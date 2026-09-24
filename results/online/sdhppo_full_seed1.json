@@ -1,0 +1,53 @@
+{
+  "algo": "sdhppo",
+  "algo_label": "Proposed (SDH-PPO)",
+  "arm": "full",
+  "seed": 1,
+  "args": {
+    "algo": "sdhppo",
+    "arm": "full",
+    "seed": 1,
+    "steps": 60000,
+    "out": "D:\\Kuliah\\Semester 6\\Riset\\sdn-iot\\results\\online",
+    "device": "cpu",
+    "capacity": 12.0,
+    "buffer_ms": 200.0,
+    "action_gain": 0.2,
+    "episode_len": 200,
+    "eval_episodes": 20,
+    "lr": 0.0003,
+    "gamma": 0.99,
+    "lam": 0.95,
+    "clip_eps": 0.2,
+    "ent_coef": 0.01,
+    "grad_clip": 0.5,
+    "batch_size": 64,
+    "rollout": 2048,
+    "ppo_epochs": 10,
+    "bins": 21,
+    "buffer": 50000,
+    "train_every": 1,
+    "target_sync": 500,
+    "eps_start": 1.0,
+    "eps_end": 0.05,
+    "eps_decay": 30000
+  },
+  "environment": "slice_env.SliceEnv (queueing simulation)",
+  "grounding": "arrival process replayed from measured rx_mbps (OVS byte counters); action->delay relationship is queueing theory, NOT measured",
+  "mean_demand_mbps": [
+    3.852031788649707,
+    3.8520009315068497,
+    4.573941017612525
+  ],
+  "started_utc": "2026-09-24T14:02:20.663032+00:00",
+  "finished_utc": "2026-09-24T14:05:52.211853+00:00",
+  "train_seconds": 210.11,
+  "eval_seconds": 1.38,
+  "git_commit": "1cfc2e6286870fe6c5c2c4f9939065869fd37b76",
+  "env_versions": {
+    "python": "3.13.5",
+    "torch": "2.11.0+cu128",
+    "numpy": "2.5.3",
+    "platform": "Windows-11-10.0.26200-SP0"
+  }
+}
