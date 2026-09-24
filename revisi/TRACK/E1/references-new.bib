@@ -1,0 +1,113 @@
+% references-new.bib
+% Hanya berisi entry yang benar-benar dipakai di related-work-table.md (T2).
+% Field diisi HANYA dari Sumber1.md / Sumber2.md. {TODO-VERIFY} = tidak tercantum di sumber, belum diverifikasi web.
+% Lihat 10-source-conflicts.md untuk daftar konflik metadata antar sumber.
+
+@inproceedings{liu2021onslicing,
+  author    = {Liu, Qiang and Choi, Nakjung and Han, Tao},
+  title     = {OnSlicing: Online End-to-End Network Slicing with Reinforcement Learning},
+  booktitle = {Proc. ACM CoNEXT},
+  year      = {2021},
+  doi       = {10.1145/3485983.3494850},
+  note      = {VERIFIED via web search (arXiv 2111.01616, ACM DL). Hybrid action space (discrete scheduling/path + continuous BW/MCS/CPU/RAM); physical E2E testbed (OpenAirInterface, OpenDayLight SDN, USRP B210); CMDP + constraint-aware policy update. Closest competitor: combines all three of our claimed contribution axes.}
+}
+
+@inproceedings{nagib2025safeslice,
+  author    = {Nagib, Ahmad M. and Abou-Zeid, Hatem and Hassanein, Hossam S.},
+  title     = {SafeSlice: Enabling SLA-Compliant O-RAN Slicing via Safe Deep Reinforcement Learning},
+  booktitle = {IEEE Int'l Conf. on Machine Learning for Communication and Networking (ICMLCN)},
+  year      = {2025},
+  doi       = {TODO-VERIFY},
+  note      = {VERIFIED via web search: full author names found (arXiv 2503.12753), accepted at ICMLCN 2025 -- not just an arXiv preprint as Sumber2.md implied. Safety layer: XGBoost regression predicts latency cost, then Euclidean-distance projection to nearest feasible action. Direct precedent for our safety-margin-correction contribution; ours differs by being a fixed proportional-error rule rather than a learned cost-regressor + formal projection.}
+}
+
+@article{alsac2022,
+  author  = {Qi, Qi and Lin, Wei and Guo, Bin and Chen, Jian and Deng, Chao and Lin, Guolin and Sun, Xin and Chen, Yong},
+  title   = {Augmented Lagrangian-Based Reinforcement Learning for Network Slicing in IIoT},
+  journal = {Electronics (MDPI)},
+  volume  = {11},
+  number  = {20},
+  pages   = {3385},
+  year    = {2022},
+  doi     = {10.3390/electronics11203385},
+  note    = {VERIFIED via web search: authors are Qi et al. (Qi, Lin, Guo, Chen, Deng, Lin, Sun, Chen) -- CONFIRMS the "Qi dkk." attribution in Sumber2.md's own first table was correct, and the "Qiang Liu et al." attribution in Sumber2.md's detailed section was a conflation with the OnSlicing author (different person, same first name). See 10-source-conflicts.md.}
+}
+
+@article{wang2026hyarppo,
+  author  = {Wang, Wentao and Li, Mingmeng and Wu, Honghai},
+  title   = {HyAR-PPO: Hybrid Action Representation Learning for Incentive-Driven Task Offloading in Vehicular Edge Computing},
+  journal = {Sensors (MDPI)},
+  volume  = {26},
+  number  = {6},
+  pages   = {1743},
+  year    = {2026},
+  doi     = {10.3390/s26061743},
+  note    = {VERIFIED via web search (PubMed/PMC/MDPI). Discrete embedding table + continuous CVAE unified into one latent space, optimized with PPO clipped objective. Most relevant hybrid-action-space precedent for reframing our own (now non-hybrid) action space claim. Evaluation environment (simulation vs. testbed) still TODO-VERIFY -- domain is Vehicular Edge Computing, not explicit in Sumber1/2.md.}
+}
+
+@inproceedings{alchaab2025lsrlslice,
+  author    = {Alchaab, Adhwaa and Younis, Ayman and Pompili, Dario},
+  title     = {Slice-on-the-Fly: AI-based Network Slicing in O-RAN for Dynamic Traffic Demands},
+  booktitle = {2025 IEEE 26th Int'l Symposium on a World of Wireless, Mobile and Multimedia Networks (WoWMoM)},
+  pages     = {51--60},
+  year      = {2025},
+  doi       = {TODO-VERIFY},
+  note      = {VERIFIED via web search (IEEE Xplore document 11026997, NSF PAR). CORRECTION: real title is "Slice-on-the-Fly: AI-based Network Slicing in O-RAN for Dynamic Traffic Demands" -- Sumber1.md/Sumber2.md both dropped the "Slice-on-the-Fly:" prefix. LS-RLSlice. Dual-time-scale actor-critic (LSTM rApp long-term + DDPG xApp short-term). Physical POWDER testbed.}
+}
+
+@article{rsppo2026,
+  author  = {TODO-VERIFY},
+  title   = {Slice-Aware and Computationally Efficient Resource Orchestration for Converged mmWave-PON O-RAN: A Reward-Shaped PPO Approach for Joint DBA and PRB Allocation},
+  journal = {Telecom (MDPI)},
+  volume  = {7},
+  number  = {3},
+  pages   = {75},
+  year    = {2026},
+  doi     = {TODO-VERIFY},
+  note    = {VERIFIED venue/issue via web search (mdpi.com/2673-4001/7/3/75), June 2026 -- author names not found in search results, still TODO-VERIFY. Hybrid: discrete mmWave PRB allocation + continuous PON DBA. Reward-shaped PPO + GCN state abstraction + action masking.}
+}
+
+@article{tarkh2026rlloop,
+  author  = {Tarkh, Lara and Chouman, Ali and Lutfiyya, Hanan and Shami, Abdallah},
+  title   = {RL-Loop: Reinforcement Learning-Driven Real-Time 5G Slice Control for Connected and Autonomous Mobility Services},
+  journal = {arXiv preprint arXiv:2604.02461},
+  year    = {2026},
+  doi     = {TODO-VERIFY},
+  note    = {VERIFIED authors via web search (ResearchGate 403529694). PPO closed-loop controller on physical Open5GS+UERANSIM testbed, adjusts edge CPU allocation at 1-second granularity, >55\% CPU reduction vs. reference. Discrete CPU-allocation action space only; does not control SDN bandwidth -- useful contrast to our continuous-bandwidth-only action space.}
+}
+
+@article{bai2024reach,
+  author  = {Bai, Xu and Islam, Muhammed Tawfiqul and Buyya, Rajkumar and Toosi, Adel Nadjaran},
+  title   = {REACH: Reinforcement Learning for Adaptive Microservice Rescheduling in the Cloud-Edge Continuum},
+  journal = {arXiv preprint arXiv:2510.06675},
+  year    = {2025},
+  doi     = {TODO-VERIFY},
+  note    = {CORRECTION: year is 2025 (arXiv posted Oct 2025), not 2024 as stated in both Sumber1.md and Sumber2.md -- verified via web search. Kubernetes-layer microservice rescheduling with sim-to-real pipeline; reduces avg. E2E latency by 7.9-10\% across 3 benchmark apps. Does not control SDN data-plane (OpenFlow/flow-table) parameters -- this is the gap our work fills. Also cited in Section IV motivation paragraph (T4).}
+}
+
+@inproceedings{song2024chainsformer,
+  author    = {Song, Chenghao and Xu, Minxian and Ye, Kejiang and Wu, Huaming and Gill, Sukhpal Singh and Buyya, Rajkumar and Xu, Chengzhong},
+  title     = {ChainsFormer: A Chain Latency-Aware Resource Provisioning Approach for Microservices Cluster},
+  booktitle = {Int'l Conf. on Service-Oriented Computing (ICSOC)},
+  year      = {2023},
+  doi       = {10.1007/978-3-031-48421-6_14},
+  note      = {CORRECTION: year is 2023 (ICSOC 2023), not 2024 as stated in Sumber1.md/Sumber2.md -- verified via web search; also 3 additional co-authors found (Gill, Buyya, Xu) not listed in either source file.}
+}
+
+@inproceedings{liu2021constrained,
+  author    = {Liu, Yongshuai and Ding, Jiaxin and Liu, Xin},
+  title     = {Resource Allocation Method for Network Slicing Using Constrained Reinforcement Learning},
+  booktitle = {IEEE Int'l Conf. on Network Protocols (ICNP)},
+  year      = {2020},
+  doi       = {TODO-VERIFY},
+  note      = {VERIFIED venue+year via web search (IEEE Xplore document 9472202): ICNP 2020. RESOLVES CONFLICT: Sumber2.md's own two tables gave 2020 in one place and 2021 in another -- 2020 confirmed correct. CMDP + Interior-point Policy Optimization (IPO) + projection layer.}
+}
+
+@inproceedings{raftopoulos2024,
+  author    = {Raftopoulos, Raoul and D'Oro, Salvatore and others},
+  title     = {DRL-based Latency-Aware Network Slicing in O-RAN with Time-Varying SLAs},
+  booktitle = {Int'l Conf. on Computing, Networking and Communications (ICNC)},
+  year      = {2024},
+  doi       = {TODO-VERIFY},
+  note      = {VERIFIED via web search (arXiv 2401.05042, IEEE Xplore document 10556357). Discrete PRB-count allocation xApp, adapts to SLA changes without retraining, 8.3x/14.4x lower SLA violation vs. DQN/Q-learning. Evaluated on OpenRAN Gym / Colosseum (FPGA-based large-scale RF channel emulation, not a pure simulator).}
+}
