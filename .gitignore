@@ -29,3 +29,6 @@ revisi/**/desktop.ini
 results/diagnostic/**/*_eval.csv
 results/pilot/*_eval.csv
 results/smoke/
+results/tuning/**/*_eval.csv
+results/diag2/*_eval.csv
+data/synth/*.csv

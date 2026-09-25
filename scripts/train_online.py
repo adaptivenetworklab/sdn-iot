@@ -92,13 +92,52 @@ def mlp(inp, out, hidden=(256, 128), act=nn.ReLU):
 
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden=(256, 128)):
+    """param='clip'  : mu is tanh-bounded, the Gaussian sample is clipped to
+                       [-1,1] and log_prob is taken on the UNCLIPPED sample.
+                       This is what V1 and the pilot used, and it is
+                       mis-specified: the density does not describe the action
+                       actually executed. 32.5% of PPO's actions sat on the
+                       boundary under it.
+       param='tanh'  : a = tanh(u), u ~ N(mu, std), with the Jacobian correction
+                       so the density matches the executed action.
+    """
+
+    def __init__(self, state_dim, action_dim, hidden=(256, 128), param="clip"):
         super().__init__()
         self.body = mlp(state_dim, action_dim, hidden)
         self.log_std = nn.Parameter(torch.zeros(action_dim) - 0.5)
+        self.param = param
 
     def forward(self, x):
-        return torch.tanh(self.body(x)), self.log_std.exp()
+        raw = self.body(x)
+        mu = torch.tanh(raw) if self.param == "clip" else raw
+        return mu, self.log_std.exp()
+
+    def sample(self, x):
+        """Returns (action_executed, log_prob, pre_squash_sample)."""
+        mu, std = self(x)
+        dist = torch.distributions.Normal(mu, std)
+        u = dist.sample()
+        if self.param == "tanh":
+            a = torch.tanh(u)
+            lp = (dist.log_prob(u) - torch.log(1 - a.pow(2) + 1e-6)).sum(-1)
+        else:
+            a = u.clamp(-1.0, 1.0)
+            lp = dist.log_prob(u).sum(-1)
+        return a, lp, u
+
+    def log_prob_of(self, x, u):
+        """Log-prob of a stored pre-squash sample, for the PPO ratio."""
+        mu, std = self(x)
+        dist = torch.distributions.Normal(mu, std)
+        lp = dist.log_prob(u)
+        if self.param == "tanh":
+            lp = lp - torch.log(1 - torch.tanh(u).pow(2) + 1e-6)
+        return lp.sum(-1), dist
+
+    def act_deterministic(self, x):
+        mu, _ = self(x)
+        return torch.tanh(mu) if self.param == "tanh" else mu
 
 
 class Critic(nn.Module):
@@ -200,28 +239,27 @@ def probe(policy, env, norm, episodes, ep_len):
 
 def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None):
     sd, ad = env.state_dim, env.action_dim
-    actor = Actor(sd, ad).to(device)
+    actor = Actor(sd, ad, param=getattr(args, "action_param", "clip")).to(device)
     critic = Critic(sd, dueling=dueling).to(device)
+    best = {"viol": float("inf"), "step": None, "state": None}
     opt_a = optim.Adam(actor.parameters(), lr=args.lr)
     opt_c = optim.Adam(critic.parameters(), lr=args.lr)
 
     log, steps_done = [], 0
     s = norm(env.reset())
     while steps_done < args.steps:
-        S, A, LP, R, D, V = [], [], [], [], [], []
+        S, A, LP, R, D, V, EXEC = [], [], [], [], [], [], []
         for _ in range(args.rollout):
             st = torch.as_tensor(s, dtype=torch.float32, device=device).unsqueeze(0)
             with torch.no_grad():
-                mu, std = actor(st)
+                a_t, lp, u = actor.sample(st)
                 val = critic(st)
-                dist = torch.distributions.Normal(mu, std)
-                raw = dist.sample()
-                lp = dist.log_prob(raw).sum(-1)
-            act = raw.squeeze(0).cpu().numpy().clip(-1, 1)
+            act = a_t.squeeze(0).cpu().numpy()
             if use_mask:
                 act = safety_mask(act, env)
             ns, r, done, _ = env.step(act)
-            S.append(s); A.append(raw.squeeze(0).cpu().numpy()); LP.append(lp.item())
+            EXEC.append(act)
+            S.append(s); A.append(u.squeeze(0).cpu().numpy()); LP.append(lp.item())
             R.append(r); D.append(float(done)); V.append(val.item())
             s = norm(env.reset() if done else ns)
             steps_done += 1
@@ -249,9 +287,7 @@ def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None):
             np.random.shuffle(idx)
             for k in range(0, len(idx), args.batch_size):
                 b = idx[k:k + args.batch_size]
-                mu, std = actor(St[b])
-                dist = torch.distributions.Normal(mu, std)
-                lp = dist.log_prob(At[b]).sum(-1)
+                lp, dist = actor.log_prob_of(St[b], At[b])
                 # Real ratio: LPt was recorded at rollout time, not this update.
                 ratio = torch.exp(lp - LPt[b])
                 s1 = ratio * Advt[b]
@@ -267,25 +303,42 @@ def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None):
 
         with torch.no_grad():
             clipped = ((ratio - 1).abs() > args.clip_eps).float().mean().item()
+        E = np.array(EXEC)
         rec = {"step": steps_done, "loss_actor": loss_a.item(), "loss_critic": loss_c.item(),
                "entropy": ent.item(), "mean_reward": float(np.mean(R)),
-               "clip_fraction": clipped}
+               "clip_fraction": clipped,
+               "act_sat_frac": float((np.abs(E) >= 0.999).mean()),
+               "act_mean_abs": float(np.abs(E).mean()),
+               "act_std": float(E.std())}
         if val_probe is not None:
             def _pol(e, st):
                 with torch.no_grad():
-                    mu, _ = actor(torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0))
-                a = mu.squeeze(0).cpu().numpy()
+                    a = actor.act_deterministic(
+                        torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0))
+                a = a.squeeze(0).cpu().numpy()
                 return safety_mask(a, e) if use_mask else a
             rec["val_reward"], rec["val_viol"] = val_probe(_pol)
+            if rec["val_viol"] < best["viol"]:
+                best.update(viol=rec["val_viol"], step=steps_done,
+                            state={k: v.clone() for k, v in actor.state_dict().items()})
         log.append(rec)
+
+    # Checkpoint selection: keep the parameters that scored best on val rather
+    # than whichever ones training happened to end on. Protects PPO from the
+    # entropy drift and DQN-style methods from post-optimum divergence.
+    if best["state"] is not None:
+        actor.load_state_dict(best["state"])
 
     def policy(e, st):
         with torch.no_grad():
-            mu, _ = actor(torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0))
-        a = mu.squeeze(0).cpu().numpy()
+            a = actor.act_deterministic(
+                torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0))
+        a = a.squeeze(0).cpu().numpy()
         return safety_mask(a, e) if use_mask else a
 
-    return policy, pd.DataFrame(log)
+    df = pd.DataFrame(log)
+    df.attrs["best_step"] = best["step"]
+    return policy, df
 
 
 # ---------------------------------------------------------------- DQN family
@@ -297,6 +350,7 @@ def run_dqn(args, env, norm, device, double, dueling, use_mask=False, val_probe=
     tgt.load_state_dict(q.state_dict())
     opt = optim.Adam(q.parameters(), lr=args.lr)
     buf = deque(maxlen=args.buffer)
+    best = {"viol": float("inf"), "step": None, "state": None}
 
     log = []
     s = norm(env.reset())
@@ -352,7 +406,13 @@ def run_dqn(args, env, norm, device, double, dueling, use_mask=False, val_probe=
                         a = bins[ai]
                         return safety_mask(a, e) if use_mask else a
                     rec["val_reward"], rec["val_viol"] = val_probe(_pol)
+                    if rec["val_viol"] < best["viol"]:
+                        best.update(viol=rec["val_viol"], step=step,
+                                    state={k: v.clone() for k, v in q.state_dict().items()})
                 log.append(rec)
+
+    if best["state"] is not None:
+        q.load_state_dict(best["state"])
 
     def policy(e, st):
         with torch.no_grad():
@@ -361,7 +421,9 @@ def run_dqn(args, env, norm, device, double, dueling, use_mask=False, val_probe=
         a = bins[ai]
         return safety_mask(a, e) if use_mask else a
 
-    return policy, pd.DataFrame(log)
+    df = pd.DataFrame(log)
+    df.attrs["best_step"] = best["step"]
+    return policy, df
 
 
 # ---------------------------------------------------------------- evaluation
@@ -445,6 +507,9 @@ def main():
     h.add_argument("--lam", type=float, default=0.95)
     h.add_argument("--clip-eps", type=float, default=0.2)
     h.add_argument("--ent-coef", type=float, default=0.01)
+    h.add_argument("--action-param", default="clip", choices=["clip", "tanh"],
+                   help="clip = V1/pilot behaviour (mis-specified density); tanh = squashed "
+                        "with Jacobian correction so the density matches the executed action")
     h.add_argument("--grad-clip", type=float, default=0.5)
     h.add_argument("--batch-size", type=int, default=64)
     h.add_argument("--rollout", type=int, default=2048)
@@ -481,6 +546,17 @@ def main():
         lo, hi = cuts[eval_phase]
         eval_arrivals = full_trace[lo:hi]
         train_slice = full_trace[:a]             # statistics always come from train
+
+        # Augmentation arms swap the TRAINING arrivals only. Evaluation always
+        # runs on the real val/test slice, never on synthetic data.
+        if args.arm in ("real_only", "aug_subsample") and args.phase == "train":
+            synth_path = REPO_ROOT / "data" / "synth" / "train_synth_trace.csv"
+            if args.arm == "real_only":
+                arrivals = train_slice
+            else:
+                if not synth_path.exists():
+                    raise SystemExit(f"{synth_path} missing; run scripts/make_synth_trace.py")
+                arrivals = pd.read_csv(synth_path).to_numpy(dtype=float)
 
     # demand_prop's mean and every normalisation constant are estimated on train
     # only, never on the split being evaluated.
@@ -551,7 +627,8 @@ def main():
         "grounding": "arrival process replayed from measured rx_mbps (OVS byte counters); "
                      "action->delay relationship is queueing theory, NOT measured",
         "mean_demand_mbps": mean_demand.tolist(),
-        "phase": args.phase, "safety_applied": bool(want_mask),
+        "phase": args.phase, "eval_phase": eval_phase, "safety_applied": bool(want_mask),
+        "best_val_step": train_log.attrs.get("best_step") if not train_log.empty else None,
         "reward_scale": args.reward_scale,
         "trace_rows_used": int(len(arrivals)),
         "stats_estimated_on": "train" if args.phase is not None else args.demand_source,
