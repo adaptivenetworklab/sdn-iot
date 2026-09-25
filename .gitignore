@@ -32,3 +32,4 @@ results/smoke/
 results/tuning/**/*_eval.csv
 results/diag2/*_eval.csv
 data/synth/*.csv
+results/tuning/**/*_train.csv

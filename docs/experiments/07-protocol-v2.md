@@ -103,7 +103,26 @@ Dua pola yang berbeda:
   (DDQN 34,13), setelah itu naik kembali ke 40–41 pada 275k — pola divergensi overestimasi yang
   khas.
 
-### 2.2 Anggaran terpilih: **175.000 step**
+### 2.2 DIGANTI — seleksi checkpoint menggantikan anggaran global
+
+> Aturan 175.000 step di bawah **tidak lagi berlaku**. Lihat §2.4.
+
+Aturan yang berlaku:
+
+- Batas atas **300.000 step, sama untuk semua metode**.
+- Probe val tiap **25.000 step** (5 episode).
+- **Checkpoint dengan val terbaik disimpan dan dipulihkan** di akhir training; step terpilih
+  dicatat di metadata tiap run sebagai `best_val_step`.
+
+Alasan penggantian: anggaran global tunggal memaksa kompromi. 175k adalah optimum DQN tetapi
+memotong PPO sebelum nilai terbaiknya, sementara 300k merugikan DQN/DDQN 6–8 poin karena
+divergensi pasca-optimum. Seleksi checkpoint memberi tiap metode titik terbaiknya sendiri tanpa
+menguntungkan metode mana pun: batas step, frekuensi probe, dan split evaluasi identik.
+Pemilihan dilakukan pada val, tidak pernah pada test.
+
+Terverifikasi: run uji memilih step 6144, bukan step terakhir 8192.
+
+### 2.3 (arsip) Anggaran 175.000 step — tidak dipakai lagi
 
 Alasan:
 
@@ -145,6 +164,76 @@ dari semua. Dipertahankan di desain sebagai lantai pembanding, bukan sebagai kan
 
 ---
 
+### 2.4 Hasil tuning anggaran setara
+
+64 run selesai: 4 metode × 8 konfigurasi × 2 seed, anggaran identik (300k step, seleksi
+checkpoint), dilatih pada train dan dipilih pada val. Safety layer dimatikan agar efek
+hyperparameter tidak tercampur.
+
+**Konfigurasi terpilih:**
+
+| Metode | Konfigurasi terbaik | Val viol % (sd) |
+|---|---|---|
+| DQN | `lr 3e-4, target_sync 500, bins 11, eps_decay 100k` | **37,42** (0,59) |
+| DDQN | `lr 3e-4, target_sync 2000, bins 21, eps_decay 100k` | **38,80** (0,47) |
+| PPO | `lr 3e-4, ent_coef 0,01, clip, reward_scale 19,0106` | **51,87** (3,58) |
+| SDH-PPO | `lr 3e-4, ent_coef 0,01, clip, reward_scale 19,0106` | **51,77** (0,38) |
+
+`lr = 3e-4` menang pada keempat metode — satu-satunya faktor yang konsisten.
+
+**Dua hipotesis diagnostik TIDAK didukung tuning.** Ini penting dicatat apa adanya:
+
+1. **`tanh` tidak menolong.** Diagnosis menunjukkan densitas Gaussian-di-clip salah spesifikasi
+   dan 32,5% aksi tersaturasi, sehingga `tanh` dengan koreksi Jacobian diharapkan memperbaiki.
+   Ternyata konfigurasi terbaik untuk **kedua** varian PPO justru memakai `clip`. Mis-spesifikasi
+   itu nyata, tetapi bukan kendala yang mengikat.
+2. **Bonus entropi bukan biang keladinya.** Diagnosis menunjukkan entropi naik sepanjang
+   training dan menduga `ent_coef` mengalahkan gradien kebijakan. Ternyata `ent_coef = 0,01`
+   menang atas `ent_coef = 0` pada kedua varian PPO.
+
+**PPO justru memburuk dengan data lengkap.** Pada 46 run parsial, PPO terbaik tampak 48,73
+(n=1); dengan 2 seed penuh menjadi 51,87. Angka n=1 itu derau. Ini juga peringatan bahwa 2 seed
+masih tipis — sd mencapai 7,85 (DQN `lr1e-4`) dan 6,29 (PPO).
+
+### 2.5 Uji behavior cloning — representasi bukan kendalanya
+
+Aktor PPO yang sama, dilatih supervised meniru aksi `demand_prop` pada train:
+
+| | Val viol % |
+|---|---|
+| BC dari aktor PPO | **33,18** |
+| `demand_prop` asli | **32,88** |
+| Selisih | **+0,30** (MSE akhir 0,002) |
+
+Kelas kebijakan **mampu** merepresentasikan heuristik itu hampir persis. Jadi kegagalan PPO
+bukan soal representasi, bukan soal observasi, dan — setelah §2.4 — bukan pula soal
+parameterisasi aksi atau bonus entropi.
+
+**Yang tersisa sebagai penjelasan:** sinyal belajarnya sendiri. Reward per langkah tampaknya
+terlalu lemah relatif deraunya untuk memandu policy gradient, sementara Q-learning yang
+melakukan bootstrap masih bisa mengekstrak sinyal. Ini hipotesis, belum diuji, dan harus
+dinyatakan sebagai hipotesis di paper.
+
+### 2.6 Posisi seluruh metode pada val
+
+| Kebijakan | Val viol % |
+|---|---|
+| `demand_prop` | **32,4** |
+| BC dari aktor PPO | 33,2 |
+| `no_control` + safety | 35,0 |
+| DQN (tuned) | 37,4 |
+| DDQN (tuned) | 38,8 |
+| `equal_split` + safety | 40,1 |
+| SDH-PPO (tuned) | 51,8 |
+| PPO (tuned) | 51,9 |
+| `threshold` | 67,0 |
+
+**Tidak satu pun metode learning mengalahkan heuristik satu baris**, bahkan setelah tuning
+anggaran setara dan seleksi checkpoint. Jarak terbaik-learner ke `demand_prop` adalah 5 poin,
+berbalik merugikan metode learning.
+
+---
+
 ## 3. Desain faktorial safety layer
 
 Setiap metode dijalankan dengan dan tanpa safety layer.
@@ -181,7 +270,30 @@ z-score dengan ambang milidetik sehingga aktif hanya pada 0,11% baris.
 | `no_control` | `a = 0`; mempertahankan alokasi awal |
 | `equal_split` | bergerak menuju `C/3` per slice |
 | `demand_prop` | bergerak menuju `mean_demand_train / Σ × C` |
-| `threshold` | `a_p = clip(delay_p / sla_p − 1, −1, +1)` |
+| `threshold` | `a_p = clip(delay_p / sla_p − 1, −1, +1)` — **cacat, lihat §4.2** |
+
+### 4.2 Aturan `threshold` cacat — catatan lengkap
+
+Terukur di val: **68,43** (safety off) / **67,03** (safety on) — terburuk dari seluruh kebijakan,
+termasuk kalah dari tidak melakukan apa-apa.
+
+Cacatnya di **cabang negatif**. Ketika `delay_p < sla_p`, rasio < 1 sehingga `ratio − 1` bernilai
+negatif dan aturan itu **menurunkan** rate slice yang sedang sehat. Slice itu lalu dibuat
+kelaparan sampai melanggar SLA, dan aturan baru bereaksi setelah terlambat. Aturan ini secara
+aktif merusak keadaan yang sudah baik.
+
+Perbaikan yang benar adalah satu sisi:
+
+```
+a_p = clip(max(0, delay_p / sla_p - 1), 0, 1)
+```
+
+atau memakai margin seperti `safety_mask` (bertindak pada `ratio > 0,8`, bukan `ratio > 1`).
+
+**Keputusan:** aturan cacat dipertahankan apa adanya di V2 sebagai **lantai pembanding**, bukan
+kandidat. Mengubahnya sekarang berarti menyetel baseline setelah melihat hasilnya. Versi yang
+diperbaiki boleh ditambahkan sebagai baseline terpisah dan bernama jujur, tidak menggantikan
+yang lama.
 
 ### 4.1 Jawaban lengkap item 2 — `const_max` = `no_control`
 
@@ -254,6 +366,27 @@ generator berjalan; hal itu tidak terjadi di sini karena policing rate adalah ak
 fitur data.
 
 Evaluasi ketiga arm **selalu pada trace riil**, tidak pernah pada sintetis.
+
+### 6.1 Generator sudah dibuat — dan mengalami mode collapse
+
+`scripts/make_synth_trace.py` selesai dan diuji (301 epoch, 613 baris keluaran). Statistiknya:
+
+| | P1 | P2 | P4 |
+|---|---|---|---|
+| Mean riil (train) | 3,554 | 3,554 | 4,274 |
+| Mean sintetis | 3,411 | 3,420 | 4,143 |
+| **Std riil** | **0,961** | **0,960** | **0,975** |
+| **Std sintetis** | **0,323** | **0,334** | **0,332** |
+
+Mean cocok dalam ~4%, tetapi **standar deviasi kolaps ke sepertiga nilai aslinya**. Trace
+sintetis jauh lebih mulus daripada trafik sebenarnya.
+
+Ini harus dilaporkan sebelum arm augmentasi ditafsirkan. Variabilitas trafik justru yang
+menekan SLA; trace yang lebih mulus adalah **masalah yang lebih mudah**. Kalau `aug_subsample`
+nanti tampak unggul, penjelasan paling mungkin adalah agennya dilatih pada beban yang lebih
+jinak, bukan augmentasinya berguna. Perbandingan yang sahih harus menyertakan statistik ini.
+
+Smoke test `real_only` dan `aug_subsample` lolos, 2 seed.
 
 ---
 
@@ -381,6 +514,23 @@ menciptakan diskontinuitas buatan pada episode yang melewati batas — dampaknya
 `episode_len=50` tetapi tetap dicatat.
 
 ---
+
+## Penyimpangan dari rencana, dicatat terbuka
+
+**Normalisasi observasi tidak divariasikan di grid tuning.** Rencana menyebut faktor
+"normalisasi observasi/reward"; yang divariasikan hanya normalisasi **reward**
+(`reward_scale` 19,0106 lawan 1,0). Skala observasi dibiarkan tetap dan identik lintas metode,
+karena justru keidentikan itu yang menjadi properti keadilan protokol — memvariasikannya per
+metode akan merusaknya. Konsekuensinya: efek normalisasi observasi belum diukur.
+
+**Bug penjaga resume pada batch tuning pertama.** Path keluaran tidak memuat nomor seed,
+sehingga setelah seed 0 selesai menulis, seed 1 ikut di-skip. Terdeteksi saat hanya 46 dari 64
+run muncul; 19 run yang kurang dijalankan ulang dengan penjaga sadar-seed. Seluruh 64
+konfigurasi kini punya 2 seed. Tidak ada hasil yang dibuang — yang hilang belum pernah
+dijalankan.
+
+**Merge `890d787` dari sesi lain.** Hanya menambah `API-DATABASE/Penjelasan.md` (+54 baris).
+Tidak menyentuh `scripts/`, `results/`, `docs/`, maupun kode environment.
 
 ## Verifikasi protokol
 

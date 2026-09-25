@@ -1,0 +1,5 @@
+sdhppo_full_train_safetyoff_seed0: train 771s eval 0.5s | reward -22.434 | viol% p1=34.3 p2=96.0 p4=28.sdssdhppo_full_train_safetyoff_seed1: train 594s eval 0.1s | reward -2.251 | viol% p1=68.4 p2=49.8 p4=54.0sdhppo_full_train_safetyoff_seed1: train 318s eval 0.2s | reward -33.351 | viol% p1=67.2 p2=67.4 p4=25.7
+ddqn_full_train_safetyoff_seed0: train 1639s eval 0.2s | reward -1.006 | viol% p1=18.0 p2=69.1 p4=40.4ddddqn_full_train_safetyoff_seed1: train 2800s eval 0.5s | reward -1.214 | viol% p1=27.4 p2=68.9 p4=38.dddqn_full_train_safetyoff_seed1: train 2461s eval 0.5s | reward -1.138 | viol% p1=32.7 p2=97.4 p4=27.9
+ppo_full_train_safetyoff_seed1: train 2179s eval 0.4s | reward -35.256 | viol% p1=72.9 p2=76.2 p4=23.8
+3
+ddqn_full_train_safetyoff_seed1: train 1875s eval 0.2s | reward -1.074 | viol% p1=16.6 p2=84.9 p4=41.2
