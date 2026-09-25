@@ -27,3 +27,5 @@ revisi/paper/preview/
 revisi/files/*.zip
 revisi/**/desktop.ini
 results/diagnostic/**/*_eval.csv
+results/pilot/*_eval.csv
+results/smoke/

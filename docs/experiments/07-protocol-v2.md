@@ -76,8 +76,72 @@ Kriteria pemilihan: satu `max_steps` yang **sama untuk semua metode**, yaitu tit
 val mendatar menurut kriteria `|Δ| < 0,10` rentang — kriteria yang sama dipakai
 `plot_convergence.py`.
 
-> **Hasil pilot dan angka `max_steps` terpilih diisi di sini setelah pilot selesai.**
-> Kurva: `results/pilot/`.
+### 2.1 Hasil pilot
+
+16 run selesai. Kurva val (total violation %, rata-rata 2 seed × 2 level safety):
+
+| step | PPO | SDH-PPO | DQN | DDQN |
+|---|---|---|---|---|
+| 25k | 48,31 | 45,49 | 49,53 | 46,60 |
+| 50k | 48,95 | 48,18 | 47,23 | 44,97 |
+| 75k | 48,02 | 47,32 | 43,60 | 46,83 |
+| 100k | 46,71 | 45,84 | 43,97 | 46,03 |
+| 125k | 47,11 | 47,39 | 42,67 | 40,90 |
+| 150k | 46,98 | 47,05 | 36,67 | **34,13** |
+| **175k** | 44,76 | 44,03 | **33,60** | 37,63 |
+| 200k | 47,94 | 46,72 | 37,50 | 36,17 |
+| 225k | 46,94 | 44,62 | 35,57 | 36,17 |
+| 250k | **44,53** | **41,84** | 35,20 | 37,80 |
+| 275k | 46,04 | 44,07 | 41,33 | 40,23 |
+| 300k | 47,15 | 46,02 | — | — |
+
+Dua pola yang berbeda:
+
+- **PPO dan SDH-PPO nyaris tidak belajar.** Bergerak dari ~48 ke ~45 lalu berosilasi dalam pita
+  44–48 sepanjang 300k step. Tidak ada tren jelas setelah 25k.
+- **DQN dan DDQN belajar, lalu memburuk.** Optimum val di 175k (DQN 33,60) dan 150k
+  (DDQN 34,13), setelah itu naik kembali ke 40–41 pada 275k — pola divergensi overestimasi yang
+  khas.
+
+### 2.2 Anggaran terpilih: **175.000 step**
+
+Alasan:
+
+- Tepat pada optimum val DQN dan berdekatan dengan optimum DDQN (150k).
+- Untuk PPO/SDH-PPO, nilai di 175k (44,76 / 44,03) berada dalam pita derau dibanding nilai
+  terbaiknya di 250k (44,53 / 41,84) — selisih 0,23 dan 2,19 poin, sementara osilasi
+  antar-titik berdekatan mencapai 3 poin.
+- Menaikkan ke 300k **merugikan** DQN/DDQN sebesar 6–8 poin karena divergensi.
+
+Pemilihan dilakukan pada **val**, yang memang perannya, dan **satu angka yang sama** dipakai
+seluruh metode. Test tidak dilibatkan.
+
+### 2.3 Baseline heuristik pada val yang sama
+
+Konteks yang harus dibaca bersama tabel di atas (seed 0, 20 episode):
+
+| Kebijakan | Safety off | Safety on |
+|---|---|---|
+| `demand_prop` | **32,37** | 32,47 |
+| `no_control` | 58,60 | 35,03 |
+| `equal_split` | 53,77 | 40,13 |
+| `threshold` | 68,43 | 67,03 |
+
+Tiga hal yang dicatat sebagai hipotesis untuk diuji formal di sweep penuh:
+
+1. **`demand_prop` tetap terbaik (32,4)**, tetapi jaraknya ke DQN (33,6) kini kecil — bukan 12
+   poin seperti pada V1 in-sample.
+2. **PPO dan SDH-PPO (41,8–44,5) lebih buruk daripada `no_control` + safety layer (35,0).**
+3. **Safety layer memberi manfaat besar justru pada kebijakan yang lemah** (`no_control`
+   58,6 → 35,0) dan hampir nol pada kebijakan yang sudah baik (`demand_prop` 32,4 → 32,5).
+   Interpretasi yang masuk akal: safety layer itu sendiri sebuah pengendali reaktif, sehingga ia
+   menggantikan kendali yang sudah disediakan `demand_prop`.
+
+Butir 3 penting bagi narasi paper: kemungkinan besar **lapisan safety itulah kontribusinya,
+bukan RL-nya**. Keluarga perbandingan (a) dirancang tepat untuk menguji ini.
+
+Catatan: `threshold` (aturan yang gue usulkan di §4) ternyata buruk — 67–68% violation, terburuk
+dari semua. Dipertahankan di desain sebagai lantai pembanding, bukan sebagai kandidat serius.
 
 ---
 

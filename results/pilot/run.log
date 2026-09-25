@@ -1,0 +1,1 @@
+ddqn_full_train_safetyoff_seed0: train 5936s eval 0.7s | reward -0.982 | viol% p1=22.0 p2=63.2 p4=37.6ddqn_full_train_safetyoff_seed1: train 3918s eval 0.7s | reward -1.199 | viol% p1=35.2 p2=52.0 p4=32.8
