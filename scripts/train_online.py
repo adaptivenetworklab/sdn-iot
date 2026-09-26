@@ -44,7 +44,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from slice_env import PORTS, SliceEnv, load_arrival_trace  # noqa: E402
+from slice_env import PORTS, SCENARIOS, SliceEnv, load_arrival_trace  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LEARNERS = ["ppo", "sdhppo", "dqn", "ddqn"]
@@ -223,9 +223,57 @@ def safety_mask(action, env, margin=0.8, gain=2.0):
     return np.clip(a, -1.0, 1.0)
 
 
+# ---------------------------------------------------------------- BC pretraining
+def bc_pretrain(actor, env, norm, mean_demand, steps=20_000, epochs=200,
+                batch_size=256, lr=1e-3, device=None, log=print):
+    """Supervised fit of `actor` to demand_prop's action on its own states.
+
+    Used two ways: as the representation probe (scripts/bc_probe.py) and as the
+    initialisation of the --actor-init bc arm. One implementation, so the arm
+    and the probe cannot drift apart.
+    """
+    S, A = [], []
+    s = norm(env.reset())
+    for _ in range(steps):
+        a = heuristic_action("demand_prop", env, mean_demand)
+        S.append(s)
+        A.append(a)
+        ns, _, done, _ = env.step(a)
+        s = norm(env.reset() if done else ns)
+    St = torch.as_tensor(np.array(S, dtype=np.float32), device=device)
+    At = torch.as_tensor(np.array(A, dtype=np.float32), device=device)
+
+    opt = optim.Adam(actor.parameters(), lr=lr)
+    idx = np.arange(len(St))
+    loss_val = float("nan")
+    for _ in range(epochs):
+        np.random.shuffle(idx)
+        for k in range(0, len(idx), batch_size):
+            b = idx[k:k + batch_size]
+            mu, _ = actor(St[b])
+            loss = nn.MSELoss()(mu, At[b])
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+        loss_val = loss.item()
+    if log:
+        log(f"bc_pretrain: {steps} transitions, {epochs} epochs, final MSE {loss_val:.5f}")
+    return loss_val
+
+
 # ---------------------------------------------------------------- PPO family
-def probe(policy, env, norm, episodes, ep_len):
-    """Short evaluation used to trace a validation curve during training."""
+def probe(policy, env, norm, episodes, ep_len, seed):
+    """Validation probe: traces a curve and selects the checkpoint.
+
+    The RNG is reseeded on every call, so every probe scores the policy on
+    the SAME episode set. Without this each probe drew different episodes and
+    the argmin over probes selected a lucky draw rather than a good policy:
+    the pilot's selected SDH-PPO checkpoint scored 40.13 on its 5-episode
+    probe and 51.50 on a 20-episode evaluation of those exact weights, 11.37
+    points of optimism. The offset differs from evaluate()'s so the selection
+    set and the reported set are not the same episodes.
+    """
+    env.rng = np.random.default_rng(seed + 20_000)
     tot, viol = [], []
     for _ in range(episodes):
         s = norm(env.reset())
@@ -237,28 +285,46 @@ def probe(policy, env, norm, episodes, ep_len):
     return float(np.mean(tot)), float(np.mean(viol) * 100)
 
 
-def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None):
+def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None, mean_demand=None):
     sd, ad = env.state_dim, env.action_dim
     actor = Actor(sd, ad, param=getattr(args, "action_param", "clip")).to(device)
     critic = Critic(sd, dueling=dueling).to(device)
     best = {"viol": float("inf"), "step": None, "state": None}
+    residual = getattr(args, "residual", "off") == "on"
+    bound = getattr(args, "residual_bound", 0.25)
+
+    def compose(a_agent, e):
+        """Action the environment receives.
+
+        The residual arm adds a bounded correction on top of the heuristic.
+        The safety layer is applied AFTER composition so it always sees the
+        action that will actually be executed.
+        """
+        a = np.asarray(a_agent, dtype=float)
+        if residual:
+            a = np.clip(heuristic_action("demand_prop", e, mean_demand) + bound * a,
+                        -1.0, 1.0)
+        return safety_mask(a, e) if use_mask else a
+
+    if getattr(args, "actor_init", "random") == "bc":
+        bc_pretrain(actor, env, norm, mean_demand, steps=args.bc_steps,
+                    epochs=args.bc_epochs, lr=args.bc_lr, device=device)
     opt_a = optim.Adam(actor.parameters(), lr=args.lr)
     opt_c = optim.Adam(critic.parameters(), lr=args.lr)
 
-    log, steps_done = [], 0
+    log, steps_done, probes_done = [], 0, 0
     s = norm(env.reset())
     while steps_done < args.steps:
-        S, A, LP, R, D, V, EXEC = [], [], [], [], [], [], []
+        S, A, LP, R, D, V, EXEC, AGENT = [], [], [], [], [], [], [], []
         for _ in range(args.rollout):
             st = torch.as_tensor(s, dtype=torch.float32, device=device).unsqueeze(0)
             with torch.no_grad():
                 a_t, lp, u = actor.sample(st)
                 val = critic(st)
-            act = a_t.squeeze(0).cpu().numpy()
-            if use_mask:
-                act = safety_mask(act, env)
+            agent_act = a_t.squeeze(0).cpu().numpy()
+            act = compose(agent_act, env)
             ns, r, done, _ = env.step(act)
-            EXEC.append(act)
+            EXEC.append(act); AGENT.append(agent_act)
             S.append(s); A.append(u.squeeze(0).cpu().numpy()); LP.append(lp.item())
             R.append(r); D.append(float(done)); V.append(val.item())
             s = norm(env.reset() if done else ns)
@@ -310,13 +376,20 @@ def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None):
                "act_sat_frac": float((np.abs(E) >= 0.999).mean()),
                "act_mean_abs": float(np.abs(E).mean()),
                "act_std": float(E.std())}
-        if val_probe is not None:
+        if residual:
+            # H0 for family (e) is "the correction is zero". Log it so the
+            # claim can be checked against that null instead of assumed.
+            G = np.array(AGENT)
+            rec["res_mean_abs"] = float(np.abs(bound * G).mean())
+            rec["res_sat_frac"] = float((np.abs(G) >= 0.999).mean())
+        if val_probe is not None and steps_done >= (probes_done + 1) * args.eval_every:
+            probes_done = steps_done // args.eval_every
+
             def _pol(e, st):
                 with torch.no_grad():
                     a = actor.act_deterministic(
                         torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0))
-                a = a.squeeze(0).cpu().numpy()
-                return safety_mask(a, e) if use_mask else a
+                return compose(a.squeeze(0).cpu().numpy(), e)
             rec["val_reward"], rec["val_viol"] = val_probe(_pol)
             if rec["val_viol"] < best["viol"]:
                 best.update(viol=rec["val_viol"], step=steps_done,
@@ -333,8 +406,7 @@ def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None):
         with torch.no_grad():
             a = actor.act_deterministic(
                 torch.as_tensor(st, dtype=torch.float32, device=device).unsqueeze(0))
-        a = a.squeeze(0).cpu().numpy()
-        return safety_mask(a, e) if use_mask else a
+        return compose(a.squeeze(0).cpu().numpy(), e)
 
     df = pd.DataFrame(log)
     df.attrs["best_step"] = best["step"]
@@ -352,7 +424,7 @@ def run_dqn(args, env, norm, device, double, dueling, use_mask=False, val_probe=
     buf = deque(maxlen=args.buffer)
     best = {"viol": float("inf"), "step": None, "state": None}
 
-    log = []
+    log, probes_done = [], 0
     s = norm(env.reset())
     for step in range(args.steps):
         eps = max(args.eps_end, args.eps_start - step / max(args.eps_decay, 1))
@@ -396,20 +468,27 @@ def run_dqn(args, env, norm, device, double, dueling, use_mask=False, val_probe=
             if step % args.target_sync == 0:
                 tgt.load_state_dict(q.state_dict())
             if step % (args.train_every * 50) == 0:
-                rec = {"step": step, "loss": loss.item(), "epsilon": eps,
-                       "q_mean": qv.mean().item()}
-                if val_probe is not None and step % args.eval_every == 0:
-                    def _pol(e, st):
-                        with torch.no_grad():
-                            ai = q(torch.as_tensor(st, dtype=torch.float32, device=device
-                                                   ).unsqueeze(0)).squeeze(0).argmax(-1).cpu().numpy()
-                        a = bins[ai]
-                        return safety_mask(a, e) if use_mask else a
-                    rec["val_reward"], rec["val_viol"] = val_probe(_pol)
-                    if rec["val_viol"] < best["viol"]:
-                        best.update(viol=rec["val_viol"], step=step,
-                                    state={k: v.clone() for k, v in q.state_dict().items()})
-                log.append(rec)
+                log.append({"step": step, "loss": loss.item(), "epsilon": eps,
+                            "q_mean": qv.mean().item()})
+
+        # The probe sits OUTSIDE the training branch on purpose. Gated inside
+        # it, the schedule depended on the replay buffer filling, so DQN got
+        # 11 probes while PPO got 147 and the argmin over probes was taken
+        # over unequal numbers of noisy draws. Same counter as run_ppo now.
+        if val_probe is not None and step + 1 >= (probes_done + 1) * args.eval_every:
+            probes_done = (step + 1) // args.eval_every
+
+            def _pol(e, st):
+                with torch.no_grad():
+                    ai = q(torch.as_tensor(st, dtype=torch.float32, device=device
+                                           ).unsqueeze(0)).squeeze(0).argmax(-1).cpu().numpy()
+                a = bins[ai]
+                return safety_mask(a, e) if use_mask else a
+            vr, vv = val_probe(_pol)
+            log.append({"step": step, "val_reward": vr, "val_viol": vv})
+            if vv < best["viol"]:
+                best.update(viol=vv, step=step,
+                            state={k: v.clone() for k, v in q.state_dict().items()})
 
     if best["state"] is not None:
         q.load_state_dict(best["state"])
@@ -489,7 +568,16 @@ def main():
     e.add_argument("--eval-every", type=int, default=0,
                    help="probe the eval split every N steps to trace a validation curve; "
                         "0 disables. Used by the pilot to pick the step budget.")
-    e.add_argument("--probe-episodes", type=int, default=5)
+    e.add_argument("--probe-episodes", type=int, default=20,
+                   help="episodes per validation probe. Matches --eval-episodes so the "
+                        "checkpoint-selection metric has the same variance as the reported "
+                        "one; at 5 the argmin selected a lucky draw (11.37 points of "
+                        "optimism, measured in the pilot).")
+    e.add_argument("--eval-scenario", action="append", default=[],
+                   choices=sorted(SCENARIOS), metavar="NAME",
+                   help="after the normal evaluation, re-evaluate the SAME trained policy "
+                        "on a non-stationary transform of the eval trace. Repeatable. "
+                        "Secondary analysis, protocol v2 section 9.1.")
     e.add_argument("--reward-scale", type=float, default=1.0,
                    help="divides the raw reward; one shared constant, see protocol v2")
     e.add_argument("--random-init-alloc", action="store_true",
@@ -521,7 +609,26 @@ def main():
     h.add_argument("--eps-start", type=float, default=1.0)
     h.add_argument("--eps-end", type=float, default=0.05)
     h.add_argument("--eps-decay", type=int, default=30_000)
+
+    r = p.add_argument_group("residual arms (protocol v2 family (e))")
+    r.add_argument("--actor-init", default="random", choices=["random", "bc"],
+                   help="bc = pretrain the actor to clone demand_prop, then fine-tune "
+                        "with PPO from those weights")
+    r.add_argument("--residual", default="off", choices=["off", "on"],
+                   help="on = executed action is demand_prop plus a bounded learned "
+                        "correction, so the agent learns the difference rather than "
+                        "competing with the heuristic")
+    r.add_argument("--residual-bound", type=float, default=0.25,
+                   help="cap on the correction, FIXED IN ADVANCE and never tuned: a "
+                        "quarter of the action range, so the correction cannot simply "
+                        "overwrite the heuristic")
+    r.add_argument("--bc-steps", type=int, default=20_000)
+    r.add_argument("--bc-epochs", type=int, default=200)
+    r.add_argument("--bc-lr", type=float, default=1e-3)
     args = p.parse_args()
+
+    if (args.actor_init == "bc" or args.residual == "on") and args.algo not in ("ppo", "sdhppo"):
+        raise SystemExit("--actor-init bc and --residual on apply to the PPO family only")
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -585,7 +692,8 @@ def main():
     val_probe = None
     if args.eval_every > 0:
         def val_probe(pol):
-            return probe(pol, eval_env, norm, args.probe_episodes, args.episode_len)
+            return probe(pol, eval_env, norm, args.probe_episodes, args.episode_len,
+                         args.seed)
 
     started = datetime.now(timezone.utc)
     t0 = time.perf_counter()
@@ -598,7 +706,8 @@ def main():
             return safety_mask(a, e) if want_mask else a
     elif args.algo in ("ppo", "sdhppo"):
         dueling = args.algo == "sdhppo" and args.arm != "no_dueling"
-        policy, train_log = run_ppo(args, env, norm, device, dueling, want_mask, val_probe)
+        policy, train_log = run_ppo(args, env, norm, device, dueling, want_mask, val_probe,
+                                    mean_demand=mean_demand)
     else:
         policy, train_log = run_dqn(args, env, norm, device,
                                     double=args.algo == "ddqn",
@@ -616,7 +725,27 @@ def main():
     else:
         stem = (f"{args.algo}_{args.arm}_{args.phase or 'nosplit'}"
                 f"_safety{'on' if want_mask else 'off'}_seed{args.seed}")
+    # Only non-default residual settings change the stem, so every filename
+    # written before these flags existed still resolves to the same path.
+    if args.actor_init != "random":
+        stem += f"_init-{args.actor_init}"
+    if args.residual == "on":
+        stem += f"_res{args.residual_bound:g}"
     ev.to_csv(args.out / f"{stem}_eval.csv", index=False)
+
+    # Non-stationary scenarios: the SAME trained policy, no retraining, on a
+    # transformed eval trace. Keeping it in-process avoids a checkpoint
+    # persistence feature nothing else needs.
+    scen_viol = {}
+    for name in args.eval_scenario:
+        sc_env = SliceEnv(SCENARIOS[name](eval_arrivals), link_capacity_mbps=args.capacity,
+                          buffer_ms=args.buffer_ms, action_gain=args.action_gain,
+                          episode_len=args.episode_len, seed=args.seed,
+                          random_init_alloc=args.random_init_alloc,
+                          reward_scale=args.reward_scale)
+        sc = evaluate(policy, sc_env, norm, args.eval_episodes, args.episode_len, args.seed)
+        sc.to_csv(args.out / f"{stem}_eval_{name}.csv", index=False)
+        scen_viol[name] = float(sc[[f"viol_{p_}" for p_ in PORTS]].values.mean() * 100)
     if not train_log.empty:
         train_log.to_csv(args.out / f"{stem}_train.csv", index=False)
 
@@ -630,6 +759,14 @@ def main():
         "phase": args.phase, "eval_phase": eval_phase, "safety_applied": bool(want_mask),
         "best_val_step": train_log.attrs.get("best_step") if not train_log.empty else None,
         "reward_scale": args.reward_scale,
+        "probe_episodes": args.probe_episodes,
+        "n_val_probes": int(train_log["val_viol"].notna().sum())
+                        if "val_viol" in train_log else 0,
+        "best_val_viol": (float(train_log["val_viol"].min())
+                          if "val_viol" in train_log else None),
+        "residual": args.residual, "residual_bound": args.residual_bound,
+        "actor_init": args.actor_init,
+        "scenario_viol_pct": scen_viol,
         "trace_rows_used": int(len(arrivals)),
         "stats_estimated_on": "train" if args.phase is not None else args.demand_source,
         "started_utc": started.isoformat(),
@@ -643,7 +780,8 @@ def main():
 
     viol = ev[[f"viol_{p}" for p in PORTS]].mean() * 100
     print(f"{stem}: train {train_secs:.0f}s eval {eval_secs:.1f}s | reward {ev['reward'].mean():.3f} | "
-          f"viol% " + " ".join(f"{p}={viol[f'viol_{p}']:.1f}" for p in PORTS))
+          f"viol% " + " ".join(f"{p}={viol[f'viol_{p}']:.1f}" for p in PORTS)
+          + "".join(f" | {k} {v:.1f}" for k, v in scen_viol.items()))
 
 
 if __name__ == "__main__":

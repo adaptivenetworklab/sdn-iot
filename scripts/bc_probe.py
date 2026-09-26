@@ -26,11 +26,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from slice_env import SliceEnv, load_arrival_trace  # noqa: E402
-from train_online import Actor, Normalizer, heuristic_action  # noqa: E402
+from train_online import Actor, Normalizer, bc_pretrain, heuristic_action  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BANNER = "DIAGNOSTIC - not for paper"
@@ -39,24 +38,6 @@ BANNER = "DIAGNOSTIC - not for paper"
 def make_env(arrivals, args, seed):
     return SliceEnv(arrivals, link_capacity_mbps=args.capacity, episode_len=args.episode_len,
                     seed=seed, random_init_alloc=True, reward_scale=args.reward_scale)
-
-
-def collect(env, norm, mean_demand, n_steps):
-    """States visited under demand_prop, paired with the action it chose.
-
-    Cloning on demand_prop's own state distribution is the right target: the
-    question is whether the network can express the mapping, not whether it is
-    robust off-distribution.
-    """
-    S, A = [], []
-    s = norm(env.reset())
-    for _ in range(n_steps):
-        a = heuristic_action("demand_prop", env, mean_demand)
-        S.append(s)
-        A.append(a)
-        ns, _, done, _ = env.step(a)
-        s = norm(env.reset() if done else ns)
-    return np.array(S, dtype=np.float32), np.array(A, dtype=np.float32)
 
 
 def evaluate(policy, env, norm, episodes, ep_len):
@@ -100,24 +81,12 @@ def main():
 
         tr_env = make_env(train, args, seed)
         norm = Normalizer(tr_env)
-        S, A = collect(tr_env, norm, mean_demand, args.bc_steps)
 
+        # Same routine the --actor-init bc arm uses, so the probe and the arm
+        # cannot drift apart.
         actor = Actor(tr_env.state_dim, tr_env.action_dim)
-        opt = torch.optim.Adam(actor.parameters(), lr=args.lr)
-        St, At = torch.as_tensor(S), torch.as_tensor(A)
-
-        idx = np.arange(len(St))
-        loss_val = float("nan")
-        for _ in range(args.epochs):
-            np.random.shuffle(idx)
-            for k in range(0, len(idx), args.batch_size):
-                bidx = idx[k:k + args.batch_size]
-                mu, _ = actor(St[bidx])
-                loss = nn.MSELoss()(mu, At[bidx])
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
-            loss_val = loss.item()
+        loss_val = bc_pretrain(actor, tr_env, norm, mean_demand, steps=args.bc_steps,
+                               epochs=args.epochs, batch_size=args.batch_size, lr=args.lr)
 
         def cloned(e, st):
             with torch.no_grad():
