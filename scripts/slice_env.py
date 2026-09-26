@@ -76,6 +76,44 @@ def load_arrival_trace(path=DEFAULT_TRACE):
     return np.clip(arr, 0.0, None)
 
 
+# ---------------------------------------------------------- scenario transforms
+# Protocol v2 section 9.1, secondary analysis. Both are pure transforms of the
+# arrival array, so state_dim, action_dim and the queue dynamics are untouched.
+# The design below is fixed BEFORE any result is seen and must not be retuned
+# afterwards.
+
+def scenario_diurnal(trace, amplitude=0.35, period=100):
+    """Rising-and-falling load envelope, one cycle every `period` rows.
+
+    The split is minutes long, not a day, so what this tests is the SHAPE of a
+    rising and falling load, not a 24 h timescale. Stated as a limitation.
+
+    `period` is 2 * episode_len on purpose. A cycle spanning the whole split
+    (the first thing tried) left each 50-step episode seeing under 8% of a
+    cycle -- a constant scale factor, and measurably NOT a regime change: it cut
+    the per-slice std to 0.958 of the real trace instead of raising it. At
+    2 * episode_len an episode sees half a cycle, so load genuinely rises and
+    falls inside it.
+    """
+    t = np.arange(len(trace))
+    return trace * (1.0 + amplitude * np.sin(2 * np.pi * t / period))[:, None]
+
+
+def scenario_flash(trace, slice_idx=1, factor=4.0, dur=45, start_frac=0.40):
+    """Flash crowd: one slice spikes for `dur` steps, then returns.
+
+    dt is 1 s per row, so dur=45 is a 45 s burst -- inside the 30-60 s band the
+    protocol names. Slice p2 is the default because its SLA sits in the middle.
+    """
+    out = trace.copy()
+    lo = int(len(trace) * start_frac)
+    out[lo:lo + dur, slice_idx] *= factor
+    return out
+
+
+SCENARIOS = {"diurnal": scenario_diurnal, "flash": scenario_flash}
+
+
 class SliceEnv:
     """Multi-slice policing-rate control.
 
@@ -284,7 +322,20 @@ def _self_check():
         assert tr.shape[1] == 3 and len(tr) > 100, tr.shape
         assert np.isfinite(tr).all()
 
-    print("slice_env self-check: all 6 properties hold")
+    # 7. Scenario transforms do what they claim and nothing else.
+    base = load_arrival_trace() if DEFAULT_TRACE.exists() else arrivals
+    d = scenario_diurnal(base)
+    assert abs(d.mean() / base.mean() - 1.0) < 0.05, "diurnal must roughly preserve the mean"
+    assert (d.std(axis=0) > base.std(axis=0)).all(), "diurnal must add variability"
+
+    f = scenario_flash(base, slice_idx=1, dur=45, start_frac=0.40)
+    lo = int(len(base) * 0.40)
+    untouched = np.r_[np.arange(0, lo), np.arange(lo + 45, len(base))]
+    assert np.allclose(f[untouched], base[untouched]), "flash must leave other rows alone"
+    assert np.allclose(np.delete(f, 1, axis=1), np.delete(base, 1, axis=1)),         "flash must leave other slices alone"
+    assert f[lo:lo + 45, 1].mean() > 3.0 * base[lo:lo + 45, 1].mean(), "flash must spike"
+
+    print("slice_env self-check: all 7 properties hold")
 
 
 if __name__ == "__main__":
