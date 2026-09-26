@@ -1,0 +1,72 @@
+{
+  "thresholds": {
+    "std_ratio": [
+      0.8,
+      1.25
+    ],
+    "ks_d": 0.15,
+    "acf1_diff": 0.15
+  },
+  "attempts": {
+    "attempt1": {
+      "passed": false,
+      "quality": {
+        "p1": {
+          "std_ratio": 0.33617279619606105,
+          "ks_d": 0.3523654159869494,
+          "acf1_real": 0.8883183418146405,
+          "acf1_synth": 0.6750756242164742,
+          "acf1_diff": 0.21324271759816638,
+          "pass": false
+        },
+        "p2": {
+          "std_ratio": 0.3477259271587042,
+          "ks_d": 0.3474714518760196,
+          "acf1_real": 0.8884113784860735,
+          "acf1_synth": 0.724498218338608,
+          "acf1_diff": 0.1639131601474656,
+          "pass": false
+        },
+        "p4": {
+          "std_ratio": 0.34079210636686713,
+          "ks_d": 0.3621533442088091,
+          "acf1_real": 0.877260166337172,
+          "acf1_synth": 0.6990729165289175,
+          "acf1_diff": 0.1781872498082545,
+          "pass": false
+        }
+      }
+    },
+    "attempt2": {
+      "passed": false,
+      "quality": {
+        "p1": {
+          "std_ratio": 0.40468615610791697,
+          "ks_d": 0.28548123980424145,
+          "acf1_real": 0.8883183418146405,
+          "acf1_synth": 0.6750835711865766,
+          "acf1_diff": 0.21323477062806395,
+          "pass": false
+        },
+        "p2": {
+          "std_ratio": 0.41925034406381,
+          "ks_d": 0.31158238172920066,
+          "acf1_real": 0.8884113784860735,
+          "acf1_synth": 0.658497195984236,
+          "acf1_diff": 0.2299141825018376,
+          "pass": false
+        },
+        "p4": {
+          "std_ratio": 0.42328080616980257,
+          "ks_d": 0.32463295269168024,
+          "acf1_real": 0.877260166337172,
+          "acf1_synth": 0.647466878013995,
+          "acf1_diff": 0.22979328832317691,
+          "pass": false
+        }
+      }
+    }
+  },
+  "active_generator": "attempt1",
+  "note": "Attempt 2 (minibatch-std critic + 5:1 batch-ratio generator schedule) FAILED all three criteria on all three slices. Per the work order, the augmentation arms keep the attempt-1 generator and the collapse is reported as a limitation. Attempt 1 was produced by make_synth_trace.py as of commit f596d03, before the attempt-2 changes; the current script reproduces attempt 2."
+}

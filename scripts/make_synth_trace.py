@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from scipy.stats import ks_2samp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from slice_env import PORTS, load_arrival_trace  # noqa: E402
@@ -34,6 +35,14 @@ from slice_env import PORTS, load_arrival_trace  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LATENT = 100
 WINDOW = 50          # matches episode_len, so one sample is one episode of arrivals
+
+# Pass thresholds for the single mode-collapse repair attempt. FIXED BEFORE
+# the attempt was run and not revised afterwards. All three must hold for all
+# three slices, computed on the TRAIN split only. The first attempt failed the
+# std criterion outright: ratios 0.336 / 0.348 / 0.341.
+PASS_STD_RATIO = (0.80, 1.25)     # synthetic std / real std, per slice
+PASS_KS_D = 0.15                  # two-sample KS statistic on the marginal
+PASS_ACF1_DIFF = 0.15             # |lag-1 autocorrelation difference|
 
 
 class Generator(nn.Module):
@@ -50,15 +59,28 @@ class Generator(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, in_dim):
+    """WGAN-GP critic with a minibatch-standard-deviation feature.
+
+    Repair attempt for the mode collapse of the first generator (synthetic std
+    collapsed to a third of the real std). The extra input is the mean
+    per-feature std across the batch, so a batch of near-identical samples is
+    directly distinguishable from a real batch and the generator is pushed to
+    keep spread. Standard anti-collapse device; it costs one scalar.
+    """
+
+    def __init__(self, in_dim, minibatch_std=True):
         super().__init__()
+        self.minibatch_std = minibatch_std
         self.main = nn.Sequential(
-            nn.Linear(in_dim, 512), nn.LeakyReLU(0.2),
+            nn.Linear(in_dim + int(minibatch_std), 512), nn.LeakyReLU(0.2),
             nn.Linear(512, 256), nn.LeakyReLU(0.2),
             nn.Linear(256, 1),
         )
 
     def forward(self, x):
+        if self.minibatch_std:
+            sd = x.std(dim=0, unbiased=False).mean().expand(x.size(0), 1)
+            x = torch.cat([x, sd], dim=1)
         return self.main(x)
 
 
@@ -77,6 +99,24 @@ def windows(trace, w):
     return np.stack([trace[i:i + w].reshape(-1) for i in range(n)])
 
 
+def quality(real, synth):
+    """Distribution metrics against the thresholds fixed at the top of the file."""
+    out, ok = {}, True
+    for i, port in enumerate(PORTS):
+        r, g = real[:, i], synth[:, i]
+        ratio = float(g.std() / r.std())
+        d = float(ks_2samp(r, g).statistic)
+        acf_r = float(np.corrcoef(r[:-1], r[1:])[0, 1])
+        acf_g = float(np.corrcoef(g[:-1], g[1:])[0, 1])
+        dacf = abs(acf_g - acf_r)
+        passed = (PASS_STD_RATIO[0] <= ratio <= PASS_STD_RATIO[1]
+                  and d <= PASS_KS_D and dacf <= PASS_ACF1_DIFF)
+        ok &= passed
+        out[port] = {"std_ratio": ratio, "ks_d": d, "acf1_real": acf_r,
+                     "acf1_synth": acf_g, "acf1_diff": dacf, "pass": bool(passed)}
+    return ok, out
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -85,7 +125,11 @@ def main():
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--gp-lambda", type=float, default=10.0)
-    p.add_argument("--gen-every", type=int, default=5)
+    p.add_argument("--n-critic", type=int, default=5,
+                   help="critic updates per generator update, counted in BATCHES. The "
+                        "first attempt gated on epoch %% 5, so the generator trained "
+                        "during one epoch in five instead of at a 5:1 batch ratio. "
+                        "Deliberate deviation from DataAugmentation.ipynb.")
     p.add_argument("--window", type=int, default=WINDOW)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", type=Path, default=REPO_ROOT / "data" / "synth")
@@ -112,6 +156,7 @@ def main():
                                          shuffle=True, drop_last=True)
 
     loss_g = torch.tensor(float("nan"))
+    batches = 0
     for epoch in range(args.epochs):
         for real in loader:
             z = torch.randn(real.size(0), LATENT)
@@ -119,7 +164,8 @@ def main():
             loss_c = (critic(fake.detach()).mean() - critic(real).mean()
                       + args.gp_lambda * gradient_penalty(critic, real, fake.detach()))
             oc.zero_grad(); loss_c.backward(); oc.step()
-            if epoch % args.gen_every == 0:
+            batches += 1
+            if batches % args.n_critic == 0:
                 loss_g = -critic(gen(z)).mean()
                 og.zero_grad(); loss_g.backward(); og.step()
         if epoch % 100 == 0:
@@ -137,10 +183,14 @@ def main():
     csv = args.out / "train_synth_trace.csv"
     df.to_csv(csv, index=False)
 
+    ok, qual = quality(train, synth)
     meta = {
         "source": "train split only", "rows": int(len(df)), "window": args.window,
         "epochs": args.epochs, "latent": LATENT, "gp_lambda": args.gp_lambda,
-        "seed": args.seed,
+        "seed": args.seed, "n_critic": args.n_critic, "minibatch_std": True,
+        "thresholds": {"std_ratio": list(PASS_STD_RATIO), "ks_d": PASS_KS_D,
+                       "acf1_diff": PASS_ACF1_DIFF},
+        "quality": qual, "passed": bool(ok),
         "real_mean_mbps": train.mean(axis=0).tolist(),
         "synth_mean_mbps": synth.mean(axis=0).tolist(),
         "real_std_mbps": train.std(axis=0).tolist(),
@@ -150,6 +200,13 @@ def main():
 
     print(f"\nreal  mean {np.round(train.mean(axis=0), 3)} std {np.round(train.std(axis=0), 3)}")
     print(f"synth mean {np.round(synth.mean(axis=0), 3)} std {np.round(synth.std(axis=0), 3)}")
+    (args.out / "train_synth_trace_quality.json").write_text(
+        json.dumps({"thresholds": meta["thresholds"], "quality": qual, "passed": bool(ok)},
+                   indent=2), encoding="utf-8")
+    for port, m in qual.items():
+        print(f"{port}: std_ratio {m['std_ratio']:.3f} | ks_d {m['ks_d']:.3f} | "
+              f"acf1_diff {m['acf1_diff']:.3f} | {'PASS' if m['pass'] else 'FAIL'}")
+    print(f"VERDICT: {'PASS' if ok else 'FAIL'}")
     print(f"-> {csv} ({len(df)} rows)")
 
 
