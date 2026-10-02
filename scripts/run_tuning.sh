@@ -58,8 +58,12 @@ emit() {          # emit <config-dir> <algo> <extra args...>
     local s
     for ((s = 0; s < SEEDS; s++)); do
         # Seed-aware guard: the stem includes the seed, so a finished seed 0 can
-        # never mask an unfinished seed 1.
+        # never mask an unfinished seed 1. The second pattern catches the arms
+        # whose stem carries a suffix after the seed (_init-bc, _res0.25) --
+        # with only the first pattern those 32 runs looked unfinished forever and
+        # would be redone and overwritten on every resume.
         if compgen -G "$dir"/*_seed"$s"_eval.csv > /dev/null; then continue; fi
+        if compgen -G "$dir"/*_seed"$s"_*_eval.csv > /dev/null; then continue; fi
         echo "python scripts/train_online.py --algo $algo --seed $s --out '$dir' $COMMON $*" >> "$JOBS"
     done
 }
