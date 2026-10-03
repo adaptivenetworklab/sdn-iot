@@ -33,3 +33,7 @@ results/tuning/**/*_eval.csv
 results/diag2/*_eval.csv
 data/synth/*.csv
 results/tuning/**/*_train.csv
+results/tuning-v2/**/*_eval.csv
+results/tuning-v2/**/*_train.csv
+results/final-v2/**/*.csv
+results/diagnostic/**/*_train.csv

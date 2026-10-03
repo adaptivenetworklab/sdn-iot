@@ -1,6 +1,6 @@
 # Protokol Eksperimen V2
 
-Tanggal: 2026-09-25, direvisi 2026-09-26 (versi final, menunggu persetujuan untuk dikunci)
+Tanggal: 2026-09-25, direvisi 2026-09-26 dan 2026-10-03 (keputusan K1-K6, menunggu persetujuan untuk dikunci)
 Status: **draf, menunggu persetujuan.** Sweep final belum dijalankan; test split belum disentuh.
 Aturan berhenti di §10 berlaku begitu dokumen ini disetujui.
 Pendahulu: `06-v1-closure.md`
@@ -140,6 +140,15 @@ terbaiknya, sementara 300k merugikan DQN/DDQN 6-8 poin karena divergensi pasca-o
 checkpoint memberi tiap metode titik terbaiknya sendiri tanpa menguntungkan metode mana pun.
 Pemilihan selalu pada val, tidak pernah pada test.
 
+**Seleksi di val juga berlaku di run final (A7).** Hasil final adalah checkpoint yang dipilih
+oleh probe val, lalu dievaluasi **sekali** di test; bukan checkpoint terbaik yang diukur di test.
+Sampai 2026-10-02 kode belum menjamin ini: probe memakai env evaluasi, sehingga run final dengan
+`--eval-phase test` akan memilih checkpoint **di test**. Diperbaiki sebelum run final mana pun:
+probe kini selalu membangun env dari split val (`split_arrivals()` di `train_online.py`),
+terlepas dari `--eval-phase`. Diverifikasi oleh `scripts/check_crn.py`. Untuk run tuning
+(`--eval-phase val`) perubahan ini tidak mengubah apa pun, karena env probe lama dan baru
+memuat baris yang sama dengan seed yang sama.
+
 #### Dua cacat pada implementasi pertama aturan ini
 
 Ditemukan saat menelusuri selisih §2.1 vs §2.4. Keduanya cacat kode, bukan pilihan desain, dan
@@ -200,6 +209,29 @@ Konteks yang harus dibaca bersama tabel di atas (seed 0, 20 episode):
 | `no_control` | 58,60 | 35,03 |
 | `equal_split` | 53,77 | 40,13 |
 | `threshold` | 68,43 | 67,03 |
+
+**Catatan 2026-10-03: tabel di atas adalah seed 0 saja.** Nilai heuristik bergantung pada
+himpunan episode evaluasi (`seed + 10_000`) dan alokasi awal acak, jadi satu seed bukan estimasi
+yang representatif. Tabel 20 seed di val, dibangkitkan `scripts/final_plan_stats.py` dari
+`results/diagnostic/heur_val20/` (DIAGNOSTIC):
+
+<!-- BEGIN GENERATED heur -->
+Heuristik di val, 20 seed (violation %):
+
+| Kebijakan | Safety | mean | sd | min | max | seed 0 |
+|---|---|---|---|---|---|---|
+| `demand_prop` | off | 29,77 | 3,83 | 23,47 | 35,90 | 32,37 |
+| `demand_prop` | on | 29,87 | 3,80 | 23,73 | 36,03 | 32,47 |
+| `no_control` | off | 60,04 | 2,74 | 55,90 | 64,73 | 58,60 |
+| `no_control` | on | 32,61 | 3,80 | 26,40 | 38,87 | 35,03 |
+| `equal_split` | off | 51,61 | 2,50 | 47,20 | 56,13 | 53,77 |
+| `equal_split` | on | 37,79 | 3,23 | 32,23 | 43,27 | 40,13 |
+| `threshold` | off | 67,06 | 1,76 | 64,37 | 69,97 | 68,43 |
+| `threshold` | on | 65,81 | 1,85 | 62,60 | 69,03 | 67,03 |
+<!-- END GENERATED heur -->
+
+Pembandingan learner (2 seed) dengan heuristik (1 seed) di §2.3 dan §2.6 karena itu tidak setara.
+Tabel aslinya tidak diubah dan tetap tercetak sebagai arsip.
 
 Tiga hal yang dicatat sebagai hipotesis untuk diuji formal di sweep penuh:
 
@@ -274,7 +306,7 @@ checkpoint putaran itu dipilih pada probe yang menaksir dirinya terlalu bagus.
   memakai 0,01 dan pemenang SDH-PPO memakai 0. Diperiksa ulang terhadap data baru, bukan
   diwariskan dari putaran lama.
 - **2 seed masih tipis.** sd mencapai 5,68 pada satu konfigurasi. Sweep final
-  memakai 10 seed.
+  memakai 20 seed (K1, 2026-10-03).
 
 ### 2.5 Uji behavior cloning — representasi bukan kendalanya
 
@@ -310,6 +342,8 @@ dinyatakan sebagai hipotesis di paper.
 | PPO (tuned) | 51,50 |
 | SDH-PPO (tuned) | 51,58 |
 | `threshold` | 67,03 |
+
+Catatan 2026-10-03: angka heuristik di tabel ini seed 0; lihat tabel 20 seed di §2.3.
 
 **`demand_prop` masih tidak terkalahkan (32,37).** Learner terbaik adalah arm residual pada
 33,10 - dan arm itu *diberi* `demand_prop` sebagai titik awalnya. Selisihnya
@@ -495,6 +529,22 @@ metode.
 | `aug_subsample` | trace sintetis saja, panjang sama dengan train | val / test riil |
 | `no_dueling` | sama dengan `full` | val / test riil |
 
+**Implementasi `full` (2026-10-02).** Sampai tanggal itu `full` tidak pernah memuat trace
+sintetis: kodenya jatuh ke trace riil train, sehingga `full` dan `real_only` identik
+byte-per-byte. Kini `full` (dan `no_dueling`) dilatih pada **613 baris riil train diikuti 613 baris
+sintetis upaya 1**, total 1.226 baris (`np.vstack`, riil lebih dulu). Titik start episode diundi
+seragam di seluruh 1.226 baris, jadi episode yang melintasi baris 613 mencampur ujung riil dan
+awal sintetis. Diskontinuitas ini sama sifatnya dengan wrap modulo di Lampiran item 7, dan dicatat.
+
+**Konsekuensi untuk tuning.** Seluruh 96 run tuning berlabel `full`, padahal datanya riil saja.
+Hyperparameter terpilih karena itu dipilih pada data `real_only`, lalu dipakai apa adanya untuk
+arm `full` yang kini memuat sintetis. Tidak ada tuning ulang. `scripts/run_tuning.sh` kini memakai
+`--arm real_only` secara eksplisit supaya tuning itu tetap bisa direproduksi.
+
+`data/synth/*.csv` gitignored. Trace upaya 1 direproduksi oleh `make_synth_trace.py` pada commit
+`f596d03`; md5 `train_synth_trace.csv` = md5 `train_synth_trace_attempt1.csv`
+(`7687de3b3b66977cf49c813d22939bf1`).
+
 `real_only` mengisolasi kontribusi augmentasi; `aug_subsample` mengontrol volume data sehingga
 efek augmentasi terpisah dari efek jumlah sampel.
 
@@ -570,6 +620,30 @@ yang menekan SLA, jadi `aug_subsample` melatih agen pada **masalah yang lebih mu
 itu tampak unggul, penjelasan paling mungkin adalah beban yang lebih jinak, bukan augmentasi yang
 berguna.
 
+**Keputusan K6 (2026-10-03).** Generator tetap upaya 1, sesuai aturan yang ditetapkan di muka.
+Kedua upaya dilaporkan di paper sebagai keterbatasan: upaya 1 gagal ketiga kriteria, upaya 2 lebih
+baik di setiap metrik tetapi tetap gagal, dan arm augmentasi memakai generator yang lebih buruk
+dari keduanya karena itulah yang ditetapkan sebelum upaya 2 dijalankan.
+
+### 6.2 Fidelitas generator - pelaporan saja (C4)
+
+Dilaporkan di samping hasil arm augmentasi. Tidak ada ambang lolos baru, tidak ada pembangkitan
+ulang, tidak ada keputusan yang bergantung padanya.
+
+| Metrik | Dihitung atas | Keterangan |
+|---|---|---|
+| KS statistik D | marginal per slice | sama dengan §6.1 |
+| Wasserstein-1 | marginal per slice | dalam Mbps |
+| Selisih ACF | lag 1 sampai 10 per slice | §6.1 hanya lag 1 |
+| AUC discriminator | jendela 50 x 3 | classifier sederhana, 5-fold CV; 0,5 = tak terbedakan |
+
+**Pembanding: batas intra-dataset.** Metrik yang sama dihitung antara **riil-train dan riil-val**.
+Angka itu adalah seberapa jauh dua potongan trace riil sendiri berbeda. Generator dinilai relatif
+terhadap batas itu, bukan terhadap nol. Catatan: riil-train vs riil-val sudah memuat pergeseran
+beban 21% (§1.2), jadi batas itu longgar dan harus dibaca demikian. Test tidak dipakai.
+
+Dasar pemilihan metrik: "Benchmarking of Synthetic Network Data", 2025 **[belum diverifikasi]**.
+
 ---
 
 ## 7. Jumlah run dan estimasi waktu
@@ -589,27 +663,42 @@ Putaran final tuning = 96 run, 300k step, `--device cpu`, 12 proses paralel.
 
 ### 7.2 Sweep final V2 - belum dijalankan
 
-10 seed per konfigurasi. `max_steps` 300k dengan seleksi checkpoint.
+**20 seed per konfigurasi (K1, 2026-10-03), tanpa pilot variansi terpisah.** `max_steps` 300k
+dengan seleksi checkpoint di val. Seed 0-19 untuk setiap sel.
 
-| Blok | Run |
-|---|---|
-| 8 metode x 2 safety x 10 seed (arm `full`) | 160 |
-| 4 learner x 2 arm augmentasi x 2 safety x 10 seed | 160 |
-| `sdhppo` `no_dueling` x 2 safety x 10 seed | 20 |
-| 2 arm residual x 2 safety x 10 seed | 40 |
-| **Total** | **380** (300 learner, 80 heuristik) |
+Driver: `scripts/run_final.py` (38 sel x 20 seed). Konfigurasi tiap learner dibaca dari
+`results/tuning-v2/selection.csv` (argmin val), bukan diketik. `no_dueling` dan arm augmentasi
+memakai konfigurasi learner-nya. Driver menolak jalan di atas perubahan yang belum di-commit di
+`scripts/` atau protokol ini, sehingga hash commit di JSON tiap run adalah kode yang benar-benar
+berjalan; ia juga menulis `manifest_*.json` (hash, tag, konfigurasi terpilih). Run yang gagal
+diulang sekali dengan perintah identik dan dicatat di `failures.log`.
+
+Jumlah run dan waktu dibangkitkan oleh `scripts/final_plan_stats.py`. Detik per run diukur dari
+`results/tuning-v2/run.log` per metode; keluarga Q dua sampai tiga kali lebih lambat dari keluarga
+PPO, jadi satu angka rata-rata lintas metode tidak dipakai.
+
+<!-- BEGIN GENERATED sweep -->
+| Blok | Run | CPU-jam (serial) |
+|---|---|---|
+| arm `full`, 4 learner | 160 | 84,20 |
+| arm `full`, 4 heuristik | 160 | 0,00 |
+| `real_only` + `aug_subsample`, 4 learner | 320 | 168,41 |
+| `no_dueling` (SDH-PPO) | 40 | 11,67 |
+| residual + BC init | 80 | 24,11 |
+| **Total** | **760** | **288,38** |
+
+Wall clock ideal pada 12 proses: **24,03 jam** (total / 12, tanpa ekor antrean). Heuristik dihitung 0 s. Rata-rata detik per run (train + eval): ddqn 2990, dqn 2528, ppo 1010, sdhppo 1050, sdhppo+bc 1119, sdhppo+res 1050.
+<!-- END GENERATED sweep -->
 
 Skenario non-stasioner **tidak menambah run**: `--eval-scenario` menilai kebijakan yang sama
 setelah eval utama di proses yang sama, jadi biayanya hanya 2 x 20 episode per run.
 
-Heuristik praktis instan (<1 detik). Pada 300k step, rata-rata per learner ~50 menit:
+Angka wall clock adalah batas bawah: diukur saat 12 proses tuning berjalan bersamaan, tetapi tanpa
+beban lain di mesin. Bila CPU dipakai proyek lain, waktunya memanjang sebanding.
 
-| | Serial | 12 proses paralel |
-|---|---|---|
-| 300 run learner | ~250 jam | **~21 jam** |
-
-Bila terlalu lama, ruang pemangkasan paling wajar tetap arm augmentasi (menghemat 160 run) - dan
-§6.1 memberi alasan tambahan untuk itu, karena generatornya kolaps.
+Bila terlalu lama, ruang pemangkasan paling wajar tetap arm augmentasi - dan §6.1 memberi alasan
+tambahan untuk itu, karena generatornya kolaps. Pemangkasan semacam itu adalah perubahan desain
+dan hanya boleh diputuskan **sebelum** protokol dikunci.
 
 ---
 
@@ -619,17 +708,93 @@ Koreksi Holm diterapkan **di dalam tiap keluarga**, bukan lintas keluarga.
 
 | Keluarga | Perbandingan | Jumlah |
 |---|---|---|
-| **(a)** Efek safety layer | on vs off, per metode | 8 |
+| **(a)** Efek safety layer | on vs off, per metode (4 learner + 4 heuristik) | 8 |
 | **(b)** Proposed+safety vs demand_prop+safety | 1 | 1 |
-| **(c)** Efek augmentasi | `full` vs `real_only` vs `aug_subsample`, per learner | 12 |
-| **(d)** Efek dueling | `sdhppo` `full` vs `no_dueling` | 1 |
+| **(c)** Efek augmentasi | `full` vs `real_only` vs `aug_subsample`: tiga pasangan per learner, **safety off** | 12 |
 | **(e)** Nilai tambah di atas heuristik | `res_sdhppo`+safety dan `bc_sdhppo`+safety, masing-masing vs `demand_prop`+safety | 2 |
 
-Metrik primer: **total violation rate** (rata-rata violation lintas tiga slice).
-Metrik sekunder: violation per slice, delay rata-rata per slice, total drop, reward.
+**Level safety untuk (c), ditetapkan saat persetujuan (2026-10-03).** Arm augmentasi dijalankan
+pada kedua level safety, tetapi protokol sebelumnya tidak menyebut level mana yang membawa tes
+primer. Ditetapkan **safety off**: mengisolasi efek augmentasi dari safety layer, konsisten dengan
+tuning, dan konsisten dengan SD yang dipakai di §8.1. Perbandingan yang sama pada safety on
+dilaporkan sebagai EKSPLORATIF (CI selisih, tanpa uji). Celah ini ditemukan saat dry-run skrip
+analisis, sebelum test dibuka.
 
-Uji: Mann-Whitney U (tidak mengasumsikan normalitas, n=10) dan Welch's t sebagai pendamping;
-effect size rank-biserial; CI 95% bootstrap. Selisih tidak signifikan dilaporkan apa adanya.
+**(d) Efek dueling dipindah ke EKSPLORATIF (2026-10-03).** Alasannya struktural, bukan hasil.
+Critic SDH-PPO mengestimasi **V(s)**, bukan Q(s,a); ia tidak menerima aksi
+(`train_online.py`, kelas `Critic`):
+
+```
+h      = ReLU(base(s))
+V(s_i) = v(h_i) + a(h_i) - (1/B) * sum_j a(h_j)
+```
+
+v dan a sama-sama head skalar, dan rata-ratanya diambil di dimensi **batch** (`dim=0`). Saat
+rollout dan bootstrap B = 1, sehingga V = v(h) persis. Saat update B = 64, sehingga nilai satu
+state bergantung pada state lain di minibatch. Dueling yang benar dengan head skalar runtuh menjadi
+v(s), identik dengan `no_dueling`. Yang diukur `sdhppo` vs `no_dueling` adalah efek head auxiliary
+yang di-centering per batch, bukan dekomposisi value/advantage. Kode **tidak** diubah, karena
+tuning dijalankan dengan critic ini. Run `no_dueling` tetap dijalankan, dilaporkan sebagai CI
+selisih tanpa uji signifikansi, dan paper tidak boleh menyebut critic ini "dueling" tanpa
+penjelasan di atas.
+
+Metrik primer: **total violation rate** (rata-rata violation lintas tiga slice, per run, atas 20
+episode evaluasi). Metrik sekunder: violation per slice, delay rata-rata per slice, total drop,
+reward.
+
+### Desain berpasangan (K2)
+
+Untuk seed ke-i, **seluruh metode** melihat realisasi environment yang sama:
+
+- **Training:** urutan episode identik. RNG env hanya dipakai di `reset()`, yang terjadi setiap 50
+  step untuk semua metode. Arm BC kini melakukan pretraining pada salinan env, karena sebelumnya
+  ia menghabiskan sekitar 400 reset dan berlatih pada episode berbeda (diperbaiki 2026-10-02).
+- **Probe val:** himpunan episode tetap, `seed + 20_000`.
+- **Evaluasi:** himpunan episode tetap, `seed + 10_000`, termasuk heuristik.
+
+Diverifikasi oleh `scripts/check_crn.py`. Yang tetap berbeda antar metode hanya keacakan internal
+agen (inisialisasi bobot, eksplorasi, minibatch). Arm augmentasi berlatih pada trace berbeda karena
+memang itu perlakuannya, tetapi tetap berbagi himpunan episode evaluasi. Karena itu **unit analisis
+adalah seed, dan setiap perbandingan dipasangkan menurut seed.**
+
+### Uji dan pelaporan (C1, C2, K3)
+
+Diimplementasikan di `scripts/analyze_v2.py`, **dibekukan** bersama protokol ini (tag
+`protocol-v2-final`) dan dijalankan tanpa modifikasi setelah sweep. `scripts/make_tables.py` adalah
+generator tabel **V1** (Mann-Whitney, penamaan V1, menulis `results/tables/` yang hash-nya
+dibekukan) dan tidak dipakai untuk V2; `analyze_v2.py` memakai ulang helper-nya (`boot_ci`, `holm`)
+tanpa mengubahnya, dan menulis tabel LaTeX V2 ke `results/analysis-v2/`.
+
+Dry-run sebelum test dibuka (2026-10-03), dua-duanya hanya val:
+
+1. Atas data yang ada (konfigurasi terpilih tuning-v2, safety off, 2 seed; heuristik val 20 seed):
+   `results/diagnostic/dryrun-v2-existing/analysis/`. Sel tanpa data dilaporkan "data tidak
+   tersedia"; pengecekan re-threshold 1x (delay tersimpan mereproduksi flag violation) lolos untuk
+   seluruh 172 run.
+2. Gladi end-to-end: `run_final.py --eval-phase val --steps 4096 --seeds 3` (114 run, 0 gagal),
+   lalu `analyze_v2.py`. Seluruh 38 sel, setiap keluarga, IQM, PoI, skenario, sensitivitas, dan
+   kurva terisi.
+
+Satu bug analisis diperbaiki saat dry-run: Holm sempat menghitung m hanya dari perbandingan yang
+datanya ada; kini perbandingan yang hilang tetap dihitung dengan p = 1, sehingga sel yang hilang
+tidak pernah melonggarkan koreksi. Satu celah desain ditemukan dan diputuskan user: level safety
+untuk keluarga (c). `make_tables.py` V1 di-dry-run ke direktori sementara: `per_seed_summary.csv`,
+`table_main.tex`, dan `table_stats.tex` identik; `stats_main.csv` berbeda 2e-20 (derau floating
+point), verdict identik.
+
+1. **Wilcoxon signed-rank** dua sisi atas selisih berpasangan `d_i = X_i - Y_i`, n = 20, Holm di
+   dalam keluarga. Menggantikan Mann-Whitney U, yang mengabaikan pemasangan. Paired t sebagai
+   pendamping. Effect size: matched-pairs rank-biserial.
+2. **CI 95% bootstrap** (percentile, 10.000 resample atas seed) untuk rata-rata selisih
+   berpasangan.
+3. **IQM** per metode dengan CI 95% percentile bootstrap, dan **probability of improvement**
+   P(X < Y), karena violation lebih kecil lebih baik. Dihitung dengan `rliable` atau implementasi
+   numpy yang setara; `rliable` belum terpasang. Dilaporkan **berdampingan** dengan p-value Holm,
+   tidak menggantikannya, dan tidak dipakai untuk klaim signifikansi. Dasar: Agarwal et al. 2021
+   **[belum diverifikasi]**.
+4. **Klaim "tidak ada perbedaan" (K3)** ditulis sebagai interval, misalnya "selisih berada dalam
+   [a, b] poin (CI 95%)", tidak pernah "tidak ada efek". Berlaku khusus untuk (e) residual/BC vs
+   `demand_prop` dan untuk (d).
 
 Keluarga (e) mengubah pertanyaannya. (b) menanyakan "apakah RL mengalahkan heuristik"; (e)
 menanyakan "apakah RL menambah nilai **di atas** heuristik yang baik". Hipotesis nol yang sehat
@@ -637,6 +802,132 @@ untuk (e): **koreksinya nol**. `res_mean_abs` dan `res_sat_frac` dicatat per rol
 itu bisa diperiksa terhadap H0 tersebut, bukan diasumsikan.
 
 **Seluruh perbandingan lain berlabel EKSPLORATIF** dan dilaporkan tanpa klaim signifikansi.
+
+### 8.1 Power analysis - dilaporkan, tidak untuk memilih N
+
+N = 20 ditetapkan oleh K1 sebelum angka di bawah dihitung. Tabel ini menyatakan selisih terkecil
+yang bisa dideteksi dengan power 0,8; ia tidak dipakai untuk menaikkan atau menurunkan N. Dasar:
+Colas et al. 2018 **[belum diverifikasi]**.
+
+**Metode.** Paired t dua sisi, n = 20, df = 19, diselesaikan eksak dengan noncentral t, lalu
+dikali sqrt(1/0,955) (efisiensi relatif asimtotik Wilcoxon terhadap t di bawah normalitas).
+**Koreksi α:** Holm di dalam keluarga mengurutkan p-value dan menguji yang terkecil pada α/m, yang
+berikutnya pada α/(m-1), dan seterusnya sampai α. MDE karena itu dilaporkan pada α/m (langkah
+pertama, kasus terburuk) dan pada α = 0,05 (langkah terakhir, kasus terbaik). m: (a) 8, (b) 1,
+(c) 12, (e) 2. Holm di dalam keluarga **tidak** mengendalikan error lintas keluarga; kolom
+Bonferroni lintas seluruh tes primer menunjukkan ongkos bila itu diinginkan.
+
+**Sumber SD dan keandalannya.**
+- Learner: tuning-v2 dengan safety off, 2 seed per konfigurasi. SD dipool di dalam konfigurasi
+  atas 8 konfigurasi per metode (df = 8, mengasumsikan varians setara antar konfigurasi). SD
+  konfigurasi terpilih sendiri hanya punya df = 1.
+- Heuristik: 20 seed di val (df = 19).
+- Tidak ada data berpasangan antar metode di atas n = 2, sehingga sigma_d dibatasi dengan ρ = 0.
+  Himpunan episode bersama membuat ρ positif, jadi batas ini **konservatif**.
+- Estimasi berpasangan n = 2 dicetak di sampingnya dan **tidak andal** (df = 1; CI 95% sigma pada
+  df = 1 membentang kira-kira 0,45x sampai 32x estimasinya).
+- Untuk (a) learner tidak ada data safety on di bawah aturan seleksi final, jadi SD safety off
+  dipakai untuk keduanya.
+- Untuk (c) tidak ada data arm augmentasi di bawah protokol final, jadi SD arm `full` dipakai.
+
+<!-- BEGIN GENERATED mde -->
+SD learner dari tuning-v2 (val, safety off):
+
+| Arm | SD pooled (df) | SD config terpilih (df) |
+|---|---|---|
+| SDH-PPO + BC init | 1,55 (8) | 0,78 (1) |
+| DDQN | 2,16 (8) | 0,40 (1) |
+| DQN | 2,30 (8) | 1,23 (1) |
+| PPO | 3,37 (8) | 3,06 (1) |
+| SDH-PPO residual | 1,29 (8) | 0,80 (1) |
+| SDH-PPO | 2,28 (8) | 0,87 (1) |
+
+MDE pada N = 20, power 0.8, dua sisi, dalam poin persentase violation. CI 95% dari CI chi-square SD. Kolom alpha/23: Bonferroni lintas seluruh tes primer.
+
+| Perbandingan | sigma_d | dasar | MDE @ alpha/m | CI 95% | MDE @ alpha | MDE @ alpha/23 | sigma_d berpasangan n=2 |
+|---|---|---|---|---|---|---|---|
+| (a) `demand_prop` on vs off | 0,19 | berpasangan, df 19 | 0,17 | [0,13; 0,25] | 0,13 | 0,19 | - |
+| (a) `no_control` on vs off | 3,89 | berpasangan, df 19 | 3,53 | [2,69; 5,16] | 2,63 | 3,97 | - |
+| (a) `equal_split` on vs off | 0,80 | berpasangan, df 19 | 0,72 | [0,55; 1,06] | 0,54 | 0,81 | - |
+| (a) `threshold` on vs off | 0,30 | berpasangan, df 19 | 0,27 | [0,21; 0,39] | 0,20 | 0,30 | - |
+| (a) PPO on vs off | 4,77 | rho = 0, df 8/8 | 4,33 | [2,93; 8,30] | 3,22 | 4,87 | - |
+| (a) SDH-PPO on vs off | 3,22 | rho = 0, df 8/8 | 2,93 | [1,98; 5,61] | 2,18 | 3,29 | - |
+| (a) DQN on vs off | 3,25 | rho = 0, df 8/8 | 2,95 | [1,99; 5,65] | 2,19 | 3,32 | - |
+| (a) DDQN on vs off | 3,05 | rho = 0, df 8/8 | 2,77 | [1,87; 5,31] | 2,06 | 3,11 | - |
+| (b) SDH-PPO+safety vs `demand_prop`+safety | 4,43 | rho = 0, df 8/19 | 2,99 | [2,21; 4,77] | 2,99 | 4,52 | 0,07 |
+| (c) PPO, tiap pasangan arm (3x) | 4,77 | rho = 0, df 8/8 | 4,54 | [3,07; 8,70] | 3,22 | 4,87 | - |
+| (c) SDH-PPO, tiap pasangan arm (3x) | 3,22 | rho = 0, df 8/8 | 3,07 | [2,07; 5,87] | 2,18 | 3,29 | - |
+| (c) DQN, tiap pasangan arm (3x) | 3,25 | rho = 0, df 8/8 | 3,09 | [2,09; 5,92] | 2,19 | 3,32 | - |
+| (c) DDQN, tiap pasangan arm (3x) | 3,05 | rho = 0, df 8/8 | 2,90 | [1,96; 5,56] | 2,06 | 3,11 | - |
+| (e) SDH-PPO residual+safety vs `demand_prop`+safety | 4,01 | rho = 0, df 8/19 | 3,03 | [2,28; 4,60] | 2,71 | 4,10 | 0,14 |
+| (e) SDH-PPO + BC init+safety vs `demand_prop`+safety | 4,10 | rho = 0, df 8/19 | 3,10 | [2,32; 4,76] | 2,77 | 4,19 | 0,16 |
+| (d) SDH-PPO vs no_dueling [EKSPLORATIF] | 3,22 | rho = 0, df 8/8 | 2,18 (tanpa koreksi) | [1,47; 4,17] | 2,18 | - | - |
+<!-- END GENERATED mde -->
+
+### 8.2 Sensitivitas ambang SLA - EKSPLORATIF (K4)
+
+Ambang SLA **tidak diubah**: `{p1: 6,0; p2: 70,0; p4: 7,0}` ms (`slice_env.py:59`). Evaluasi
+menyimpan delay per langkah per port (`delay_p1`, `delay_p2`, `delay_p4` di setiap `*_eval.csv`,
+juga di CSV skenario), dan meta tiap run kini mencatat `sla_ms`. Karena itu violation bisa
+dihitung ulang pada ambang lain tanpa run ulang.
+
+Rentang ditetapkan sekarang, sebelum hasil test ada: **0,5x, 0,75x, 1,5x, 2x** ambang tiap port,
+diskalakan serentak untuk ketiga port. Dilaporkan sebagai EKSPLORATIF, tanpa Holm, di luar keluarga
+(a), (b), (c), (e).
+
+**Titik tambahan `real_train_median` (ditetapkan saat persetujuan, 2026-10-03):**
+`{p1: 6,50; p2: 8,23; p4: 6,52}` ms, ditulis sebagai konstanta `REAL_TRAIN_MEDIAN` di
+`scripts/analyze_v2.py`. Eksploratif, sama seperti titik pengali di atas. Catatan asal angka:
+nilai ini adalah median delay terukur atas **seluruh** trace riil (1.022 baris, tabel di bawah),
+bukan atas split train saja; median split train adalah 6,49 / 8,37 / 6,52 ms. Angkanya dipakai
+persis seperti ditetapkan, dan selisih nama ini dicatat, bukan dikoreksi. Yang dipakai adalah
+delay **ukur**, bukan hasil kebijakan apa pun, jadi tidak ada informasi hasil test yang masuk.
+
+Batasan titik ini, sama dengan seluruh §8.2 tetapi lebih tajam: agen, reward, dan safety layer
+dilatih dan bertindak dengan ambang 6/70/7. Analisis ini mengukur **ketahanan kebijakan** yang
+sudah ada terhadap garis lain, bukan kinerja yang akan dicapai bila dilatih pada ambang
+tersebut. Ambang utama tetap 6/70/7 (K4).
+
+Batas tafsir: hanya **metriknya** yang di-threshold ulang. Kebijakan, reward, dan safety layer
+selama training dan evaluasi tetap memakai ambang asli. Ini mengukur seberapa bergantung
+peringkat metode pada letak garis, bukan bagaimana metode akan berperilaku bila dilatih dengan
+ambang lain.
+
+**Asal-usul ambang (A2) - temuan, dilaporkan, tidak diperbaiki.** Paper revisi
+(`revisi/hasil-revisian/main.tex`, catatan Tabel slice) menyatakan ambang ini sebagai median delay
+satu arah trace tanpa policing. Median dihitung ulang oleh `scripts/final_plan_stats.py`:
+
+<!-- BEGIN GENERATED sla -->
+| Sumber | baris | median P1 (ms) | median P2 (ms) | median P4 (ms) |
+|---|---|---|---|---|
+| **Ambang di `slice_env.py`** | - | 6,00 | 70,00 | 7,00 |
+| trace riil `dataset_dqn_rich.csv` | 1022 | 6,50 | 8,23 | 6,52 |
+| sintetis V1 `final/synthetic_15k_complete_final.csv` | 15000 | 6,07 | 70,77 | 6,88 |
+| sintetis V1 `revision/drl_preprocessed_final.csv` | 14999 | 6,07 | 70,77 | 6,88 |
+<!-- END GENERATED sla -->
+
+Median trace riil tidak mereproduksi ambangnya, terutama P2. Median yang cocok muncul di dataset
+sintetis WGAN V1. Jadi ambang P2 berasal dari data sintetis, bukan pengukuran.
+
+Di luar asal-usulnya, ada ketidakcocokan besaran. Delay terukur didominasi offset jam (13,19%
+sampel negatif, `03-measurement-campaign.md`). Delay di simulator adalah delay antrean murni
+`backlog / rate`, yang nol saat tidak ada antrean. Ambang yang diturunkan dari satu besaran
+diterapkan ke besaran lain. Paper harus menyatakan ambang ini sebagai titik operasi yang dipilih,
+bukan turunan pengukuran. Kalimat di `revisi/hasil-revisian/main.tex` milik sesi lain dan tidak
+disentuh.
+
+### 8.3 Kurva belajar (C3)
+
+Dari kolom `val_viol` di `*_train.csv`, 12 titik probe per run:
+
+- rata-rata lintas 20 seed per metode, dengan pita CI 95% bootstrap atas seed;
+- kurva **setiap** seed digambar tipis di belakangnya, supaya divergensi satu seed tidak
+  tersembunyi di dalam rata-rata;
+- titik `best_val_step` tiap seed ditandai.
+
+Kurva ini dihitung atas himpunan probe, yaitu himpunan yang juga dipakai untuk **memilih**
+checkpoint. Minimumnya karena itu optimis (gap probe ke eval §2.4), dan hal itu dinyatakan di
+keterangan gambar.
 
 ---
 
@@ -652,13 +943,13 @@ dipanggil lewat `--eval-scenario`. Skenario 3 tetap ditulis-tidak-dijalankan.
 1. **Ramp diurnal.** Beban diskalakan mengikuti profil harian (rendah malam, puncak siang).
    Dasar: pola diurnal adalah karakteristik yang paling konsisten dilaporkan pada trafik seluler
    dan IoT, dan menjadi motivasi utama penskalaan sumber daya elastis pada literatur network
-   slicing.
+   slicing **[belum diverifikasi]**.
 2. **Flash crowd.** Lonjakan mendadak 3–5× pada satu slice selama 30–60 detik, lalu kembali.
    Dasar: lonjakan mendadak adalah kasus uji standar untuk mekanisme isolasi antar-slice;
-   inilah kondisi ketika isolasi benar-benar diuji, bukan pada beban tunak.
+   inilah kondisi ketika isolasi benar-benar diuji, bukan pada beban tunak **[belum diverifikasi]**.
 3. **Kedatangan dan kepergian slice** - **TIDAK DIJALANKAN.** Slice masuk atau keluar di
    tengah episode, mengubah jumlah penuntut kapasitas. Dasar: multi-tenancy dinamis adalah premis
-   network slicing. Alasan tidak dijalankan: ini satu-satunya dari ketiganya yang **bukan**
+   network slicing **[belum diverifikasi]**. Alasan tidak dijalankan: ini satu-satunya dari ketiganya yang **bukan**
    transformasi trace - ia butuh masking slice mati di observasi, di aksi, dan di proyeksi
    simpleks kapasitas, yaitu perubahan struktural `slice_env` yang lebih besar dari dua skenario
    lain digabung. Dinyatakan sebagai batas ruang lingkup, bukan sebagai hasil.
@@ -711,7 +1002,7 @@ Berlaku begitu protokol ini disetujui.
    skenario, metrik, keluarga uji, atau hyperparameter terpilih. Tidak ada perubahan pada
    `slice_env`, pada aturan seleksi checkpoint, atau pada definisi metrik.
 2. **Setiap ide setelah titik ini berlabel EKSPLORATIF** dan dilaporkan tanpa klaim signifikansi,
-   tanpa koreksi Holm, dan tanpa masuk ke keluarga primer (a)-(e).
+   tanpa koreksi Holm, dan tanpa masuk ke keluarga primer (a), (b), (c), (e).
 3. **Test dibuka sekali.** Hanya di run final V2, di belakang `--allow-test`. Tidak ada
    pemilihan, penyetelan, atau pembacaan apa pun pada test sebelum itu.
 4. **Hasil dilaporkan apa adanya.** Termasuk bila Proposed kalah, bila tidak ada learner
@@ -721,6 +1012,20 @@ Berlaku begitu protokol ini disetujui.
 6. **Yang boleh berubah** hanyalah perbaikan bug yang terbukti dan koreksi salah tulis. Setiap
    perbaikan semacam itu dicatat di "Penyimpangan dari rencana" beserta tanggalnya, dan bila ia
    mengubah angka, angka lamanya tetap tercetak sebagai arsip.
+
+---
+
+## 11. Rujukan
+
+Semua rujukan literatur di protokol ini **[belum diverifikasi]**: belum dibaca dari sumbernya, dan
+judul, tahun, serta klaim yang dikaitkan padanya harus dicek sebelum masuk paper.
+
+| Rujukan | Dipakai untuk | Status |
+|---|---|---|
+| Colas et al., 2018 (jumlah seed dan uji statistik untuk RL) | §8.1 power analysis | [belum diverifikasi] |
+| Agarwal et al., 2021 (IQM, bootstrap CI, probability of improvement; `rliable`) | §8 butir 3 | [belum diverifikasi] |
+| "Benchmarking of Synthetic Network Data", 2025 | §6.2 metrik fidelitas | [belum diverifikasi] |
+| Literatur pola diurnal, flash crowd, dan slice dinamis (tanpa rujukan spesifik) | §9.1 | [belum diverifikasi] |
 
 ---
 
@@ -804,6 +1109,34 @@ shell inline yang tidak pernah di-commit. Ditutup dengan `scripts/run_tuning.sh`
 memuat penjaga resume sadar-seed dan mode `DRY=1` untuk memeriksa antrean sebelum menghabiskan
 jam CPU.
 
+**2026-10-02: arm `full` tidak pernah memuat sintetis.** `full` = `real_only` di kode. Diperbaiki
+sesuai §6 atas keputusan user. Seluruh tuning karena itu dijalankan pada data riil saja. Rinci
+di §6.
+
+**2026-10-02: probe membaca split evaluasi, bukan val.** Run final dengan `--eval-phase test` akan
+memilih checkpoint di test. Diperbaiki sebelum run final; tuning tidak terdampak. Rinci di §2.2.
+
+**2026-10-02: arm BC berlatih pada episode berbeda.** `bc_pretrain` memakai env training yang sama
+dan menghabiskan sekitar 400 reset RNG-nya. Kini memakai salinan env (K2). Run tuning BC
+dijalankan sebelum perbaikan ini; seleksinya tetap sah karena hanya urutan episode training yang
+bergeser, bukan himpunan probe atau eval.
+
+**2026-10-03: critic "dueling" adalah V(s) dengan centering per batch.** Tidak diubah. Family (d)
+dipindah ke eksploratif. Rinci di §8.
+
+**2026-10-03: asal-usul ambang SLA tidak cocok dengan klaim paper.** Dilaporkan di §8.2, ambang
+tidak diubah (K4).
+
+**2026-10-03: N naik dari 10 ke 20 (K1), Mann-Whitney diganti Wilcoxon signed-rank berpasangan
+(K2, C1).** Ditetapkan sebelum sweep final dan sebelum test disentuh.
+
+**2026-10-03: CSV mentah `results/tuning-v2/` gitignored (K5).** Konsisten dengan
+`results/tuning/`. Arsip di luar repo:
+`D:\Kuliah\Semester 6\Riset\sdn-iot-archive\tuning-v2-raw-csv.zip` (192 file), dengan
+`tuning-v2-raw-csv.zip.sha256` (`318095abdc1b445c77c2076b7c5ec85ffd8174d730733a97f7cd988143b5bf84`)
+dan manifest SHA256 per file `tuning-v2-raw-csv.manifest.sha256`. JSON per run, `selection.csv`,
+dan `run.log` tetap di-track.
+
 ## Verifikasi protokol
 
 - `--phase test` dan `--eval-phase test` menolak berjalan tanpa `--allow-test`.
@@ -817,3 +1150,9 @@ jam CPU.
   reward identik dengan `demand_prop` (33,2 / 31,0 / 32,9 dan -1,166).
 - Smoke test seluruh sel faktorial lolos sebelum sweep penuh.
 - Pilot dan smoke test hanya menulis ke `results/pilot/` dan `results/smoke/`.
+- **CRN dan seleksi di val:** `python scripts/check_crn.py` memeriksa bahwa ppo, sdhppo, dqn,
+  ddqn, residual, dan BC berlatih pada urutan episode identik; bahwa probe dan eval berbagi himpunan
+  episode, termasuk heuristik; bahwa probe membaca val apa pun `--eval-phase`-nya; dan bahwa
+  `full` = 1.226 baris.
+- **Antrean tuning:** `DRY=1 bash scripts/run_tuning.sh results/tuning-v2 12 2 300000` mengantrekan
+  0 run.

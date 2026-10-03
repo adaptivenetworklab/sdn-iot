@@ -28,6 +28,7 @@ docs/experiments/00-contamination-audit.md:
 """
 
 import argparse
+import copy
 import json
 import platform
 import subprocess
@@ -307,7 +308,10 @@ def run_ppo(args, env, norm, device, dueling, use_mask, val_probe=None, mean_dem
         return safety_mask(a, e) if use_mask else a
 
     if getattr(args, "actor_init", "random") == "bc":
-        bc_pretrain(actor, env, norm, mean_demand, steps=args.bc_steps,
+        # On a copy: cloning on the training env itself consumed ~400 resets of
+        # its RNG, so the BC arm trained on different episodes than every other
+        # method with the same seed. Protocol v2 K2 requires them identical.
+        bc_pretrain(actor, copy.deepcopy(env), norm, mean_demand, steps=args.bc_steps,
                     epochs=args.bc_epochs, lr=args.bc_lr, device=device)
     opt_a = optim.Adam(actor.parameters(), lr=args.lr)
     opt_c = optim.Adam(critic.parameters(), lr=args.lr)
@@ -534,6 +538,55 @@ def git_commit():
         return None
 
 
+def split_arrivals(full_trace, args):
+    """(train arrivals, eval arrivals, probe arrivals, train slice) for one run.
+
+    Separate from main() so scripts/check_crn.py can assert where the probe
+    reads without running anything.
+    """
+    eval_phase = args.eval_phase or args.phase
+    if args.phase is None:                       # V1 behaviour: no split at all
+        arrivals = eval_arrivals = probe_arrivals = full_trace
+        train_slice = full_trace
+    else:
+        if "test" in (args.phase, eval_phase) and not args.allow_test:
+            raise SystemExit("touching the test split requires --allow-test. It is reserved "
+                             "for the single final V2 run.")
+        f_tr, f_va, _ = (float(x) for x in args.split.split(","))
+        n = len(full_trace)
+        a, b = int(n * f_tr), int(n * (f_tr + f_va))
+        cuts = {"train": (0, a), "val": (a, b), "test": (b, n)}
+        lo, hi = cuts[args.phase]
+        arrivals = full_trace[lo:hi]
+        lo, hi = cuts[eval_phase]
+        eval_arrivals = full_trace[lo:hi]
+        train_slice = full_trace[:a]             # statistics always come from train
+        # Checkpoint selection reads val, whatever the final evaluation reads.
+        # The probe used to run on eval_env, so a final run with --eval-phase
+        # test would have selected its checkpoint ON TEST.
+        probe_arrivals = full_trace[slice(*cuts["val"])]
+
+        # Augmentation arms swap the TRAINING arrivals only. Evaluation always
+        # runs on the real val/test slice, never on synthetic data.
+        #   real_only      real train rows only
+        #   aug_subsample  synthetic only, same length as train
+        #   full           real train rows, then the synthetic trace (protocol
+        #                  v2 section 6). Until 2026-10-02 `full` silently fell
+        #                  through to real-only, identical to real_only; the
+        #                  tuning sweep therefore ran on real data only.
+        # no_dueling is "same data as full" by the protocol, so it follows full.
+        if args.phase == "train" and args.arm != "no_mask":
+            synth_path = REPO_ROOT / "data" / "synth" / "train_synth_trace.csv"
+            if args.arm == "real_only":
+                arrivals = train_slice
+            else:
+                if not synth_path.exists():
+                    raise SystemExit(f"{synth_path} missing; run scripts/make_synth_trace.py")
+                synth = pd.read_csv(synth_path).to_numpy(dtype=float)
+                arrivals = synth if args.arm == "aug_subsample" else np.vstack([train_slice, synth])
+    return arrivals, eval_arrivals, probe_arrivals, train_slice
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -637,33 +690,7 @@ def main():
     full_trace = load_arrival_trace()
 
     eval_phase = args.eval_phase or args.phase
-    if args.phase is None:                       # V1 behaviour: no split at all
-        arrivals = eval_arrivals = full_trace
-        train_slice = full_trace
-    else:
-        if "test" in (args.phase, eval_phase) and not args.allow_test:
-            raise SystemExit("touching the test split requires --allow-test. It is reserved "
-                             "for the single final V2 run.")
-        f_tr, f_va, _ = (float(x) for x in args.split.split(","))
-        n = len(full_trace)
-        a, b = int(n * f_tr), int(n * (f_tr + f_va))
-        cuts = {"train": (0, a), "val": (a, b), "test": (b, n)}
-        lo, hi = cuts[args.phase]
-        arrivals = full_trace[lo:hi]
-        lo, hi = cuts[eval_phase]
-        eval_arrivals = full_trace[lo:hi]
-        train_slice = full_trace[:a]             # statistics always come from train
-
-        # Augmentation arms swap the TRAINING arrivals only. Evaluation always
-        # runs on the real val/test slice, never on synthetic data.
-        if args.arm in ("real_only", "aug_subsample") and args.phase == "train":
-            synth_path = REPO_ROOT / "data" / "synth" / "train_synth_trace.csv"
-            if args.arm == "real_only":
-                arrivals = train_slice
-            else:
-                if not synth_path.exists():
-                    raise SystemExit(f"{synth_path} missing; run scripts/make_synth_trace.py")
-                arrivals = pd.read_csv(synth_path).to_numpy(dtype=float)
+    arrivals, eval_arrivals, probe_arrivals, train_slice = split_arrivals(full_trace, args)
 
     # demand_prop's mean and every normalisation constant are estimated on train
     # only, never on the split being evaluated.
@@ -689,10 +716,15 @@ def main():
                         episode_len=args.episode_len, seed=args.seed,
                         random_init_alloc=args.random_init_alloc,
                         reward_scale=args.reward_scale)
+    probe_env = SliceEnv(probe_arrivals, link_capacity_mbps=args.capacity,
+                         buffer_ms=args.buffer_ms, action_gain=args.action_gain,
+                         episode_len=args.episode_len, seed=args.seed,
+                         random_init_alloc=args.random_init_alloc,
+                         reward_scale=args.reward_scale)
     val_probe = None
     if args.eval_every > 0:
         def val_probe(pol):
-            return probe(pol, eval_env, norm, args.probe_episodes, args.episode_len,
+            return probe(pol, probe_env, norm, args.probe_episodes, args.episode_len,
                          args.seed)
 
     started = datetime.now(timezone.utc)
@@ -759,6 +791,7 @@ def main():
         "phase": args.phase, "eval_phase": eval_phase, "safety_applied": bool(want_mask),
         "best_val_step": train_log.attrs.get("best_step") if not train_log.empty else None,
         "reward_scale": args.reward_scale,
+        "sla_ms": env.sla,
         "probe_episodes": args.probe_episodes,
         "n_val_probes": int(train_log["val_viol"].notna().sum())
                         if "val_viol" in train_log else 0,

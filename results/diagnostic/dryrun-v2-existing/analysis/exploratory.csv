@@ -1,0 +1,15 @@
+X,Y,n,mean_X,mean_Y,mean_d,ci_lo,ci_hi,p_wilcoxon,p_ttest,rank_biserial,family,m,p_holm,verdict
+SDH-PPO [full] safety on,SDH-PPO [no_dueling] safety on,0,,,,,,,,,d,2,,data tidak tersedia
+SDH-PPO [full] safety off,SDH-PPO [no_dueling] safety off,0,,,,,,,,,d,2,,data tidak tersedia
+PPO [full] safety on,PPO [real_only] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+PPO [full] safety on,PPO [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+PPO [real_only] safety on,PPO [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+SDH-PPO [full] safety on,SDH-PPO [real_only] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+SDH-PPO [full] safety on,SDH-PPO [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+SDH-PPO [real_only] safety on,SDH-PPO [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+DQN [full] safety on,DQN [real_only] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+DQN [full] safety on,DQN [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+DQN [real_only] safety on,DQN [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+DDQN [full] safety on,DDQN [real_only] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+DDQN [full] safety on,DDQN [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia
+DDQN [real_only] safety on,DDQN [aug_subsample] safety on,0,,,,,,,,,c_safetyon,12,,data tidak tersedia

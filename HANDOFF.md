@@ -264,9 +264,10 @@ keladinya (pemenang PPO memakai `ent_coef = 0,01`, pemenang SDH-PPO memakai 0).
 
 ## 10. Reproducibility
 
-**Environment.** `requirements.txt` di root. Versi yang menjalankan seluruh tuning dicatat di tiap
-file JSON per run di bawah `env_versions`: Python 3.13.5, torch 2.11.0+cu128, numpy 2.5.3,
-Windows 11. Seluruh run tuning memakai `--device cpu` meski torch terpasang dengan CUDA.
+**Environment.** `requirements-v2.txt` (koreksi 2026-10-03: `requirements.txt` di root adalah env
+Raspberry Pi testbed, dan versi yang dulu tertulis di sini, torch 2.11.0+cu128 / numpy 2.5.3, salah).
+Yang tercatat di `env_versions` seluruh 96 run tuning: Python 3.13.5, torch 2.7.1+cpu (build CPU
+saja), numpy 2.3.0, Windows 11. Seluruh run memakai `--device cpu`.
 
 Perintah. Tuning: `bash scripts/run_tuning.sh results/tuning-v2 12 2 300000`. Seleksi:
 `python scripts/summarize_tuning.py`. Tabel paper: `python scripts/make_tables.py`. Generator

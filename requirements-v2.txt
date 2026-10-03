@@ -1,0 +1,10 @@
+# Environment that ran tuning-v2 and the final V2 sweep (CPU only). Root requirements.txt is the
+# Raspberry Pi testbed environment, not this one. Python 3.13.5, Windows 11.
+arch==7.2.0
+matplotlib==3.10.3
+numpy==2.3.0
+pandas==2.3.0
+rliable==1.2.0
+scipy==1.15.3
+statsmodels==0.15.0
+torch==2.7.1

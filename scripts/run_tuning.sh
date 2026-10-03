@@ -26,7 +26,10 @@ STEPS=${4:-300000}
 
 # One line on purpose: this is interpolated into a job line and xargs splits on
 # newlines, so a wrapped value would be executed as three truncated commands.
-COMMON="--phase train --eval-phase val --safety off --device cpu --steps $STEPS --episode-len 50 --eval-every 25000 --probe-episodes 20 --eval-episodes 20 --random-init-alloc --capacity 12.0"
+# --arm real_only: the tuning sweep trained on real rows only. It ran as `full`,
+# which until 2026-10-02 fell through to real-only; `full` now appends the
+# synthetic trace, so the arm is named explicitly to keep this reproducible.
+COMMON="--arm real_only --phase train --eval-phase val --safety off --device cpu --steps $STEPS --episode-len 50 --eval-every 25000 --probe-episodes 20 --eval-episodes 20 --random-init-alloc --capacity 12.0"
 
 # Half-fraction of 2^4, so each main effect is still estimable from 8 runs.
 PPO_GRID="

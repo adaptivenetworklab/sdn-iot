@@ -1,0 +1,35 @@
+\begin{table*}[t]
+\centering
+\footnotesize
+\caption{Primary comparisons (protocol v2 \S8): total violation rate, seed-paired (n per row), Wilcoxon signed-rank, Holm within family. $\Delta = X - Y$, lower is better.}
+\label{tab:primary_v2}
+\begin{tabular}{llllrrrl}
+\toprule
+Fam. & X & Y & n & $\Delta$ [95\% CI] & $p_{\mathrm{Holm}}$ & $r_{rb}$ & Verdict \\
+\midrule
+(a) & PPO [full] safety on & PPO [full] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(a) & SDH-PPO [full] safety on & SDH-PPO [full] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(a) & DQN [full] safety on & DQN [full] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(a) & DDQN [full] safety on & DDQN [full] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(a) & demand\_prop [full] safety on & demand\_prop [full] safety off & 20 & 0.09 [0.01, 0.17] & 0.0399 & 0.52 & X lebih buruk; selisih dalam [0.01, 0.17] \\
+(a) & no\_control [full] safety on & no\_control [full] safety off & 20 & -27.43 [-29.04, -25.79] & 7.63e-06 & -1.00 & X lebih baik; selisih dalam [-29.04, -25.79] \\
+(a) & equal\_split [full] safety on & equal\_split [full] safety off & 20 & -13.82 [-14.17, -13.47] & 7.63e-06 & -1.00 & X lebih baik; selisih dalam [-14.17, -13.47] \\
+(a) & threshold [full] safety on & threshold [full] safety off & 20 & -1.25 [-1.38, -1.12] & 0.000177 & -1.00 & X lebih baik; selisih dalam [-1.38, -1.12] \\
+(b) & SDH-PPO [full] safety on & demand\_prop [full] safety on & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & PPO [full] safety off & PPO [real\_only] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & PPO [full] safety off & PPO [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & PPO [real\_only] safety off & PPO [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & SDH-PPO [full] safety off & SDH-PPO [real\_only] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & SDH-PPO [full] safety off & SDH-PPO [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & SDH-PPO [real\_only] safety off & SDH-PPO [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & DQN [full] safety off & DQN [real\_only] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & DQN [full] safety off & DQN [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & DQN [real\_only] safety off & DQN [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & DDQN [full] safety off & DDQN [real\_only] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & DDQN [full] safety off & DDQN [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(c) & DDQN [real\_only] safety off & DDQN [aug\_subsample] safety off & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(e) & SDH-PPO residual [full] safety on & demand\_prop [full] safety on & 0 & n/a & n/a & n/a & data tidak tersedia \\
+(e) & SDH-PPO + BC init [full] safety on & demand\_prop [full] safety on & 0 & n/a & n/a & n/a & data tidak tersedia \\
+\bottomrule
+\end{tabular}
+\end{table*}

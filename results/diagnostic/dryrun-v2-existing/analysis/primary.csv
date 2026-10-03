@@ -1,0 +1,24 @@
+X,Y,n,mean_X,mean_Y,mean_d,ci_lo,ci_hi,p_wilcoxon,p_ttest,rank_biserial,family,m,p_holm,verdict
+PPO [full] safety on,PPO [full] safety off,0,,,,,,,,,a,8,,data tidak tersedia
+SDH-PPO [full] safety on,SDH-PPO [full] safety off,0,,,,,,,,,a,8,,data tidak tersedia
+DQN [full] safety on,DQN [full] safety off,0,,,,,,,,,a,8,,data tidak tersedia
+DDQN [full] safety on,DDQN [full] safety off,0,,,,,,,,,a,8,,data tidak tersedia
+demand_prop [full] safety on,demand_prop [full] safety off,20,29.866666666666667,29.775000000000006,0.09166666666666715,0.008333333333333387,0.17000000000000082,0.039939814646005975,0.04281110075573437,0.5238095238095238,a,8,0.039939814646005975,"X lebih buruk; selisih dalam [0.01, 0.17]"
+no_control [full] safety on,no_control [full] safety off,20,32.60666666666667,60.038333333333334,-27.431666666666665,-29.043333333333333,-25.789958333333338,1.9073486328125e-06,7.077665078452859e-18,-1.0,a,8,7.62939453125e-06,"X lebih baik; selisih dalam [-29.04, -25.79]"
+equal_split [full] safety on,equal_split [full] safety off,20,37.788333333333334,51.611666666666665,-13.823333333333332,-14.165000000000001,-13.473333333333338,1.9073486328125e-06,3.10440057661107e-25,-1.0,a,8,7.62939453125e-06,"X lebih baik; selisih dalam [-14.17, -13.47]"
+threshold [full] safety on,threshold [full] safety off,20,65.81333333333335,67.06166666666665,-1.2483333333333362,-1.3766666666666683,-1.123333333333333,8.832385863081277e-05,9.839700987635242e-14,-1.0,a,8,0.00017664771726162555,"X lebih baik; selisih dalam [-1.38, -1.12]"
+SDH-PPO [full] safety on,demand_prop [full] safety on,0,,,,,,,,,b,1,,data tidak tersedia
+PPO [full] safety off,PPO [real_only] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+PPO [full] safety off,PPO [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+PPO [real_only] safety off,PPO [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+SDH-PPO [full] safety off,SDH-PPO [real_only] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+SDH-PPO [full] safety off,SDH-PPO [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+SDH-PPO [real_only] safety off,SDH-PPO [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+DQN [full] safety off,DQN [real_only] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+DQN [full] safety off,DQN [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+DQN [real_only] safety off,DQN [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+DDQN [full] safety off,DDQN [real_only] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+DDQN [full] safety off,DDQN [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+DDQN [real_only] safety off,DDQN [aug_subsample] safety off,0,,,,,,,,,c,12,,data tidak tersedia
+SDH-PPO residual [full] safety on,demand_prop [full] safety on,0,,,,,,,,,e,2,,data tidak tersedia
+SDH-PPO + BC init [full] safety on,demand_prop [full] safety on,0,,,,,,,,,e,2,,data tidak tersedia

@@ -1,0 +1,5 @@
+pair,p_X_better,ci_lo,ci_hi
+a: demand_prop_full_safetyon vs demand_prop_full_safetyoff,0.4875,0.305,0.6675
+a: no_control_full_safetyon vs no_control_full_safetyoff,1.0,1.0,1.0
+a: equal_split_full_safetyon vs equal_split_full_safetyoff,1.0,1.0,1.0
+a: threshold_full_safetyon vs threshold_full_safetyoff,0.685,0.51,0.84
