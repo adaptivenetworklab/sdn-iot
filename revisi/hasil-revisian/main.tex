@@ -223,7 +223,7 @@ Smart Building (DHT11)& 1 & P1 & Lowest  & 6.0 \\
 \bottomrule
 \end{tabular}
 \\[3pt]
-\parbox{\columnwidth}{\footnotesize \rev{The thresholds are design parameters of the simulator, not a priority ordering, and are not derived from the measured trace: the median measured one-way delay on the real training split is 6.49, 8.37, and 6.52 ms for P1, P2, and P4. The 70 ms threshold of P2 matches the median of the synthetic dataset of the earlier version of this work (70.77 ms), not a real measurement. P1 carries the tightest numeric threshold while P4 carries the highest priority; both are reported so that the two are not confused. Violation rates re-scored at 0.5, 0.75, 1.5, and 2 times these thresholds and at the measured medians form an exploratory sensitivity analysis} \textcolor{red}{[V2]}.}
+\parbox{\columnwidth}{\footnotesize \rev{The thresholds are design parameters of the simulator, not a priority ordering, and are not derived from the measured trace: the median measured one-way delay on the real training split is 6.49, 8.37, and 6.52 ms for P1, P2, and P4. The 70 ms threshold of P2 matches the median of the synthetic dataset of the earlier version of this work (70.77 ms), not a real measurement. P1 carries the tightest numeric threshold while P4 carries the highest priority; both are reported so that the two are not confused. Violation rates re-scored at 0.5, 0.75, 1.5, and 2 times these thresholds and at the medians of the full measured trace (6.50, 8.23, and 6.52 ms) form an exploratory sensitivity analysis} \textcolor{red}{[V2]}.}
 \end{table}
 
 \begin{itemize}
@@ -265,7 +265,7 @@ The packet drop logic, as defined in (\ref{eq:drop}), functions as a determinist
 %% since state, action and reward define the MDP rather than a preprocessing step.
 \subsubsection{State Space}
 
-\rev{The MDP state \m{s_t} observed by the agent is a 12-dimensional vector, obtained by measuring four telemetry features on each of the three monitored ports (P1, P2, P4): received throughput (\m{RX_{mbps}}), RX utilization percentage (\m{U}, given in (\ref{eq:util})), one-way delay (\m{delay_{ms}}), and the current policing rate (\m{Policing_{kbps}}). Formally, \m{s_t = [RX_{mbps},U,delay_{ms},Policing_{kbps}]_{p1} \oplus [\cdot]_{p2} \oplus [\cdot]_{p4} \in \mathbb{R}^{12}}, where \m{\oplus} denotes vector concatenation. Before being passed to the Actor and Critic networks, the 12 features are divided by fixed constants: arrival rate by 10 Mbps, utilization by 2, delay by the slice's own SLA threshold \m{\tau_p}, and policing rate by the link capacity \m{C}. The scaling is fixed rather than running, so every method receives identical inputs.}
+\rev{The MDP state \m{s_t} observed by the agent is a 12-dimensional vector built by the queueing simulator of Section~\ref{sec:evalenv} from four features on each of the three monitored slices (P1, P2, P4): the arrival rate \m{\lambda_p} in Mbps, replayed from the \m{RX_{mbps}} column of the measured trace; the utilization \m{\lambda_p/\mu_p}, a ratio rather than the percentage of (\ref{eq:util}); the queueing delay \m{delay_p} of the simulated buffer in ms, given in (\ref{eq:queue}); and the current policing rate \m{\mu_p} in Mbps. Formally, \m{s_t = [\lambda, \lambda/\mu, delay, \mu]_{p1} \oplus [\cdot]_{p2} \oplus [\cdot]_{p4} \in \mathbb{R}^{12}}, where \m{\oplus} denotes vector concatenation. Measured one-way delay is not part of the state. Before being passed to the Actor and Critic networks, the 12 features are divided by fixed constants: arrival rate by 10 Mbps, utilization by 2, delay by the slice's own SLA threshold \m{\tau_p}, and policing rate by the link capacity \m{C}. The scaling is fixed rather than running, so every method receives identical inputs.}
 
 \subsubsection{Action Space}
 
@@ -297,15 +297,6 @@ The packet-drop penalty, as defined in (\ref{eq:pdrop}), quantifies network unre
 P_{drop} = \text{clip}\left( \sum_{i \in \{1,2,4\}}{Drop_{pi}},\,0,\,5 \right)
 \end{equation}
 
-\rev{The total reward of (\ref{eq:rtotal}) applies the sigmoid penalty of (\ref{eq:sigpen}) to all three monitored ports, with the healthcare slice weighted twice as heavily as P1 or P2, together with (\ref{eq:thr}) and (\ref{eq:pdrop}). It is the reward of the earlier offline formulation of this work, defined on the collected dataset, and is not used to train or evaluate the agents reported here.}
-
-\begin{equation}\label{eq:rtotal}
-\begin{split}
-R_{total} = {}& \left( 5 R_{thr} \right) - \left( 10 P_{lat}(delay_{p4},\tau_{p4}) \right) \\
-& - \left( 5 P_{lat}(delay_{p1},\tau_{p1}) \right) - \left( 5 P_{lat}(delay_{p2},\tau_{p2}) \right) - P_{drop}
-\end{split}
-\end{equation}
-
 \rev{All agents in this study are trained online in the queueing simulator of Section~\ref{sec:evalenv}, with the reward of (\ref{eq:rsim}). It is stated in SLA-relative units so that the three slices remain commensurate despite thresholds that differ by an order of magnitude; \m{Drop_p} is the traffic, in Mb, dropped by slice \m{p}'s buffer in that step. The reward is divided by the fixed reward scale of Table~\ref{tab:2}, the standard deviation of the unscaled reward under No Control on the training split:}
 
 \begin{equation}\label{eq:rsim}
@@ -326,9 +317,10 @@ z = \frac{x - \mu}{\sigma}
 
 The Critic's objective function, formulated in (\ref{eq:ld}), minimizes the Wasserstein distance between real and generated data distributions to enhance discriminative precision while ensuring training stability. To enforce the 1-Lipschitz continuity constraint, a gradient penalty term is integrated to penalize the L2 norm of the gradient with respect to interpolated samples when it deviates from unity, following the WGAN-GP formulation of Gulrajani et al.\cite{b39}
 
-\begin{equation}\label{eq:ld}
-L_{D} = \mathbb{E}_{\widetilde{\mathbb{x}} \sim \mathbb{P}_{\mathbb{g}}}\left\lbrack D\left( \widetilde{x} \right) \right\rbrack - \mathbb{E}_{\mathbb{x} \sim \mathbb{P}_{\mathbb{r}}}\left\lbrack D(x) \right\rbrack + \lambda\mathbb{E}_{\widehat{\mathbb{x}} \sim \mathbb{P}_{\widehat{\mathbb{x}}}}\left\lbrack \left( \text{|}\nabla_{\widehat{x}}D\left( \widehat{x} \right)\text{|}_{2} - 1 \right)^{2} \right\rbrack
-\end{equation}
+\begin{multline}\label{eq:ld}
+L_{D} = \mathbb{E}_{\widetilde{\mathbb{x}} \sim \mathbb{P}_{\mathbb{g}}}\left\lbrack D\left( \widetilde{x} \right) \right\rbrack - \mathbb{E}_{\mathbb{x} \sim \mathbb{P}_{\mathbb{r}}}\left\lbrack D(x) \right\rbrack \\
++ \lambda\mathbb{E}_{\widehat{\mathbb{x}} \sim \mathbb{P}_{\widehat{\mathbb{x}}}}\left\lbrack \left( \text{|}\nabla_{\widehat{x}}D\left( \widehat{x} \right)\text{|}_{2} - 1 \right)^{2} \right\rbrack
+\end{multline}
 
 The Generator's objective function, as defined in (\ref{eq:lg}), is formulated to minimize the negative expectation of the scores assigned by the Critic to synthetic samples. By minimizing this loss, the Generator is effectively trained to maximize the perceived authenticity of its output, thereby producing synthetic data that is indistinguishable from the real data distribution to deceive the Critic.
 
@@ -359,9 +351,10 @@ The proposed framework consists of three primary internal components that work s
 
 To ensure training stability, the proposed framework implements the following mathematical constraints. To prevent excessively large policy updates, the Actor is optimized by maximizing the clipped surrogate objective:
 
-\begin{equation}\label{eq:clip}
-L^{CLIP}(\theta) = \widehat{\mathbb{E}_{t}}\left\lbrack \min\left( r_{t}(\theta)\widehat{A_{t}},\text{clip}\left( r_{t}(\theta),1 - \epsilon,1 + \epsilon \right)\widehat{A_{t}} \right) \right\rbrack
-\end{equation}
+\begin{multline}\label{eq:clip}
+L^{CLIP}(\theta) = \widehat{\mathbb{E}_{t}}\Bigl\lbrack \min\Bigl( r_{t}(\theta)\widehat{A_{t}}, \\
+\text{clip}\left( r_{t}(\theta),1 - \epsilon,1 + \epsilon \right)\widehat{A_{t}} \Bigr) \Bigr\rbrack
+\end{multline}
 
 where \(r_{t}(\theta)\) is the probability ratio:
 
@@ -383,8 +376,9 @@ r_{t}(\theta) = \frac{\pi_{\theta}\left( a_{t} \middle| s_{t} \right)}{\pi_{\the
 
 \begin{equation}\label{eq:safety}
 a_t^{safe,(p)} = \begin{cases}
-\text{clip}\left(a_t^{(p)} + K\left(\dfrac{delay_p}{\tau_p} - m\right),-1,1\right) & \text{if } \dfrac{delay_p}{\tau_p} > m \\[8pt]
-a_t^{(p)} & \text{otherwise}
+\text{clip}\left(a_t^{(p)} + K\left(\dfrac{delay_p}{\tau_p} - m\right),-1,1\right) \\
+\qquad \text{if } \dfrac{delay_p}{\tau_p} > m \\[8pt]
+a_t^{(p)} \qquad \text{otherwise}
 \end{cases}
 \end{equation}
 

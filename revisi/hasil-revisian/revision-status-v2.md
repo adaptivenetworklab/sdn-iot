@@ -1,5 +1,7 @@
 # Status item revisi setelah V2 (2026-10-05)
 
+Nomor persamaan mengikuti `main.tex` setelah Eq. reward offline lama dihapus (16 persamaan).
+
 Audit 34 item `Revision Form ICoICT 2026.xlsx` terhadap `main.tex` saat ini (setelah hasil V2
 masuk, commit `2e6b24d` dan sesudahnya). Tidak ada angka hasil di dokumen ini; angka hasil hanya
 ada di tabel yang di-`\input` dari `results/analysis-v2`.
@@ -16,10 +18,10 @@ Status:
 | Item | Status | Lokasi sekarang | Sisa |
 |---|---|---|---|
 | A1 hybrid action | Tuntas, form usang | Abstract, §III-B Action Space, §III-D Actor | Akronim "Safe-Driven **Hybrid** PPO" di §I tetap (keputusan penamaan); baris "This work" Table I = REWRITE |
-| A2 safety equations | Tuntas | Eq. (17), §III-D-2 | Kuantifikasi kini keluarga (a) di tabel primer; prosa §IV-C `[V2]` |
+| A2 safety equations | Tuntas | Eq. (15), §III-D-2 | Kuantifikasi kini keluarga (a) di tabel primer; prosa §IV-C `[V2]` |
 | A3 Dueling Critic definisi | Tuntas | §III-D Dueling Critic bullet | Hasil kini eksploratif (d) di tabel eksploratif; prosa `[V2]` |
 | A4 EO-WGAN | Tuntas | 0 kemunculan di `main.tex` | - |
-| A5 state space | Tuntas | §III-B State Space | Dikoreksi 2026-10-05: skala observasi tetap (arrival/10 Mbps, utilisasi/2, delay/τ_p, rate/C; `train_online.py:68-83`); z-score (9) kini hanya untuk jendela latih generator. Sisa fakta: kalimat yang sama masih menyebut fitur state "measuring ... one-way delay", padahal di V2 delay adalah delay antrean simulator |
+| A5 state space | Tuntas | §III-B State Space | Dikoreksi 2026-10-05: state dibangun simulator (arrival dari trace riil, utilisasi λ/μ, delay antrean, rate; `slice_env.py:197-205,209,222`), skala tetap (`train_online.py:68-83`); z-score (8) hanya untuk jendela latih generator |
 | B1 SLA thresholds | Tuntas | Table II dan catatannya | Dikoreksi 2026-10-05: ambang = parameter desain simulator; median riil-train per port; ambang P2 = median dataset sintetis V1; rujukan ke analisis sensitivitas (`[V2]`, tempatnya menunggu bingkai) |
 | B2 arah klaim | Menunggu bingkai | §IV-B | Prosa `[V2]` |
 | B3 port 3 | Tuntas | §III-A-2, Table II | - |
@@ -39,14 +41,14 @@ Status:
 | E2 resolusi gambar | **Sebagian terbuka** | Fig. 3 dan Fig. 4 baru, 300 dpi, dari `scripts/paper_figures_v2.py` | Fig. 1 dan Fig. 2 masih 96 dpi, tanpa sumber vektor di repo; harus digambar ulang penulis |
 | X1 cross-reference | Tuntas | seluruh dokumen | Compile tanpa referensi undefined |
 | X2 penomoran prioritas | Tuntas | Table II, §III-A-2 | - |
-| X3 reward vs klaim | Tuntas | §III-B-3, Eq. (7)-(8) | Dikoreksi 2026-10-05: (7) dinyatakan reward formulasi offline lama yang tidak dipakai; agen dilatih online dengan (8) dibagi reward scale (`slice_env.py:237-247`) |
+| X3 reward vs klaim | Tuntas | §III-B-3, Eq. (7) | Dikoreksi 2026-10-05: reward total offline lama dan persamaannya dihapus; agen dilatih online dengan (7) dibagi reward scale (`slice_env.py:237-247`). Sisa fakta: (4)-(6) (sigmoid penalty, throughput incentive, drop penalty) masih dideskripsikan, padahal tidak dipakai reward V2 |
 | X4 restrukturisasi §III | Tuntas | §III | - |
 | X5 fragmen ganda | Tuntas | §III-C | - |
 | X6 sumber ambang | Tuntas | Table II | Lihat B1 |
 | X7 drop-cap | Tuntas | §I | - |
 | N1 heading ganda | Tuntas | semua heading | Terverifikasi di PDF compile |
 | N2 angka hardcoded | Tuntas | Abstract, §V | Angka palsu hilang; prosa hasil `[V2]` |
-| N3 evaluator nama-algoritma | Tuntas | §III-E, Eq. (18) | - |
+| N3 evaluator nama-algoritma | Tuntas | §III-E, Eq. (16) | - |
 | N4 unit safety | Tuntas | §III-D-2 | - |
 | N5 demand_prop dilaporkan | Menunggu bingkai | Abstract/§IV/§V `[V2]`, kontribusi = REWRITE | Kalimat "not beaten by any learned policy" di daftar baseline masih ada (klaim, tidak diubah) |
 
@@ -88,7 +90,7 @@ Framework", "PPO Update Engine", "Experience Relay Buffer" (sic), "Sampled Traje
 (s)", "Environment".
 Bertentangan atau tidak lengkap terhadap V2:
 - **Tidak ada safety-margin correction**: aksi aktor langsung ke Environment, padahal V2 menerapkan
-  koreksi (17) sebelum `env.step` dan menjadikannya faktor on/off.
+  koreksi (15) sebelum `env.step` dan menjadikannya faktor on/off.
 - **"Experience Relay Buffer" dengan transisi (s, a, r, s')** terbaca sebagai replay buffer
   off-policy. PPO V2 on-policy dengan rollout 2.048 step.
 - Critic tidak digambarkan dengan dua head (value dan advantage-residual); nama "dueling" tidak ada.

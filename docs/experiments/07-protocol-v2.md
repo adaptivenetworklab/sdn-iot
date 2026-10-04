@@ -875,13 +875,16 @@ Rentang ditetapkan sekarang, sebelum hasil test ada: **0,5x, 0,75x, 1,5x, 2x** a
 diskalakan serentak untuk ketiga port. Dilaporkan sebagai EKSPLORATIF, tanpa Holm, di luar keluarga
 (a), (b), (c), (e).
 
-**Titik tambahan `real_train_median` (ditetapkan saat persetujuan, 2026-10-03):**
-`{p1: 6,50; p2: 8,23; p4: 6,52}` ms, ditulis sebagai konstanta `REAL_TRAIN_MEDIAN` di
-`scripts/analyze_v2.py`. Eksploratif, sama seperti titik pengali di atas. Catatan asal angka:
-nilai ini adalah median delay terukur atas **seluruh** trace riil (1.022 baris, tabel di bawah),
-bukan atas split train saja; median split train adalah 6,49 / 8,37 / 6,52 ms. Angkanya dipakai
-persis seperti ditetapkan, dan selisih nama ini dicatat, bukan dikoreksi. Yang dipakai adalah
-delay **ukur**, bukan hasil kebijakan apa pun, jadi tidak ada informasi hasil test yang masuk.
+**Titik tambahan `full_trace_median` (ditetapkan saat persetujuan, 2026-10-03; label dikoreksi
+2026-10-05, lihat Penyimpangan):** `{p1: 6,50; p2: 8,23; p4: 6,52}` ms. Di kode beku titik ini
+bernama `real_train_median`: konstanta `REAL_TRAIN_MEDIAN` di `scripts/analyze_v2.py` dan kolom
+`sens_real_train_median` di keluaran analisis. Nama itu **keliru**: nilainya median delay terukur
+atas **seluruh** trace riil (1.022 baris, tabel di bawah), bukan atas split train; median split
+train adalah 6,49 / 8,37 / 6,52 ms. Kedua set direproduksi oleh `scripts/sla_medians.py` dengan
+cara baca yang sama dan tanpa filter. Angkanya dipakai persis seperti ditetapkan; yang dikoreksi
+hanya labelnya, nama di kode dan CSV dibiarkan karena skrip analisis dibekukan. Eksploratif, sama
+seperti titik pengali di atas. Yang dipakai adalah delay **ukur**, bukan hasil kebijakan apa pun,
+jadi tidak ada informasi hasil test yang masuk.
 
 Batasan titik ini, sama dengan seluruh §8.2 tetapi lebih tajam: agen, reward, dan safety layer
 dilatih dan bertindak dengan ambang 6/70/7. Analisis ini mengukur **ketahanan kebijakan** yang
@@ -1136,6 +1139,14 @@ tidak diubah (K4).
 `tuning-v2-raw-csv.zip.sha256` (`318095abdc1b445c77c2076b7c5ec85ffd8174d730733a97f7cd988143b5bf84`)
 dan manifest SHA256 per file `tuning-v2-raw-csv.manifest.sha256`. JSON per run, `selection.csv`,
 dan `run.log` tetap di-track.
+
+**2026-10-05: label titik sensitivitas `real_train_median` dikoreksi menjadi `full_trace_median`.**
+Penelusuran setelah hasil: nilai `{6,50; 8,23; 6,52}` adalah median trace riil penuh (1.022 baris,
+blok `sla` di §8.2 dari `final_plan_stats.py:sla_block`), sedangkan median split train adalah
+`{6,49; 8,37; 6,52}`. Keduanya dibaca dengan parser yang sama dan tanpa filter, direproduksi oleh
+`scripts/sla_medians.py`. Analisis **tidak** dijalankan ulang dan angkanya tidak berubah; nama
+`REAL_TRAIN_MEDIAN` / `sens_real_train_median` di kode dan CSV beku dibiarkan, dan dokumen ini, 08,
+serta paper memakai label yang sesuai dengan angkanya.
 
 ## Verifikasi protokol
 

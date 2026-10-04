@@ -274,10 +274,12 @@ checkpoint yang sama.
 ### 3.4 Sensitivitas ambang SLA (K4)
 
 Hanya metrik yang di-threshold ulang dari delay per langkah yang tersimpan; kebijakan, reward, dan
-safety layer dilatih dan bertindak pada 6/70/7 ms. `sens_real_train_median` memakai
-`{p1: 6,50; p2: 8,23; p4: 6,52}` ms, yang ditetapkan saat persetujuan dan sebenarnya median
-**seluruh** trace riil, bukan split train (protokol §8.2). Tabel ini mengukur ketahanan kebijakan
-terhadap letak garis, bukan kinerja bila dilatih pada ambang lain.
+safety layer dilatih dan bertindak pada 6/70/7 ms. **Kolom `sens_real_train_median` di tabel ini
+salah nama: isinya titik `full_trace_median`**, yaitu `{p1: 6,50; p2: 8,23; p4: 6,52}` ms, median
+**seluruh** trace riil. Median split train adalah `{6,49; 8,37; 6,52}` ms; keduanya direproduksi
+oleh `scripts/sla_medians.py`. Nama kolom berasal dari skrip analisis beku dan tidak diubah; label
+dikoreksi 2026-10-05 (§5.3, protokol §8.2). Tabel ini mengukur ketahanan kebijakan terhadap letak
+garis, bukan kinerja bila dilatih pada ambang lain.
 
 <!-- BEGIN GENERATED sensitivitas -->
 | cell | viol_total | sens_0.5x | sens_0.75x | sens_1.5x | sens_2x | sens_real_train_median |
@@ -548,7 +550,7 @@ Bacaan, terbatas pada apa yang ditunjukkan tabel (tanpa uji):
 | 2026-10-03 | CSV mentah tuning-v2 gitignored, diarsipkan di luar repo (K5) | Penyimpangan |
 | 2026-10-03 | Level safety keluarga (c) ditetapkan off; safety on jadi eksploratif | §8 |
 | 2026-10-03 | Bug Holm di skrip analisis (m dari perbandingan yang ada saja) diperbaiki saat dry-run, sebelum test | §8 |
-| 2026-10-03 | Titik sensitivitas `real_train_median` adalah median seluruh trace, bukan split train; dipakai persis seperti ditetapkan | §8.2 |
+| 2026-10-03 | Titik sensitivitas `real_train_median` adalah median seluruh trace, bukan split train; dipakai persis seperti ditetapkan (label dikoreksi menjadi `full_trace_median` 2026-10-05, §5.3) | §8.2 |
 | 2026-10-03 | `rliable` 1.2.0 dipasang (bersama `arch`, `statsmodels`); `requirements-v2.txt` ditambahkan. Kalimat "`rliable` belum terpasang" di §8 butir 3 sudah usang saat tag dibuat dan tidak diubah | §8 |
 | 2026-10-03 | Versi lingkungan di `HANDOFF.md` dikoreksi: torch 2.7.1+cpu, numpy 2.3.0 | `HANDOFF.md` §10 |
 
@@ -587,6 +589,11 @@ Tidak ada yang mengubah perintah, seed, kode, data, atau commit; semuanya hanya 
 3. Bagian §3.6 (letak checkpoint) adalah tambahan post hoc, dilabeli demikian.
 4. `scripts/fill_results_v2.py` ditambahkan untuk mengisi dokumen ini; ia tidak menghitung ulang
    statistik apa pun dari `analyze_v2.py`.
+5. **2026-10-05: label titik sensitivitas dikoreksi.** Titik yang di kode beku dan di kolom
+   `sens_real_train_median` bernama `real_train_median` ternyata median trace riil **penuh**
+   (1.022 baris), bukan split train (baris 0–612). Label yang benar `full_trace_median`.
+   Ditelusuri dengan `scripts/sla_medians.py`: parser sama, tanpa filter, beda hanya subset baris.
+   Analisis tidak dijalankan ulang dan angka tidak berubah (protokol, Penyimpangan 2026-10-05).
 
 ---
 
