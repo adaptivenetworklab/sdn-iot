@@ -6,14 +6,17 @@ Protokol: `docs/experiments/07-protocol-v2.md` pada tag `protocol-v2-final` (com
 **Aturan angka.** Tidak ada angka hasil di dokumen ini yang diketik tangan. Setiap tabel berada di
 dalam blok `<!-- BEGIN GENERATED ... -->` dan diisi oleh `python scripts/fill_results_v2.py`:
 tujuh blok disalin apa adanya dari `results/analysis-v2/report.md` (keluaran
-`scripts/analyze_v2.py` yang dibekukan), dua blok (`integrity`, `ckpt`) dihitung skrip itu dari
-JSON run, `run.log`, `per_run.csv`, dan `curves.csv`. Prosa hanya merujuk ke tabel; ia tidak
+`scripts/analyze_v2.py` yang dibekukan), tiga blok C4 disalin dari
+`results/analysis-v2/fidelity_c4.md` (keluaran `scripts/fidelity_c4.py`, §4a), dan dua blok
+(`integrity`, `ckpt`) dihitung skrip itu dari JSON run, `run.log`, `per_run.csv`, dan
+`curves.csv`. Prosa hanya merujuk ke tabel; ia tidak
 mengutip angka. Bila prosa dan tabel tampak berbeda, tabel yang benar.
 
 Reproduksi:
 
 ```
 python scripts/analyze_v2.py          # --dir results/final-v2 --out results/analysis-v2 (default)
+python scripts/fidelity_c4.py         # C4, train dan val saja (§4a)
 python scripts/fill_results_v2.py     # mengisi blok GENERATED di dokumen ini
 ```
 
@@ -441,6 +444,88 @@ Rata-rata atas 20 seed per sel: violation dan delay rata-rata per slice, total d
 
 ---
 
+## 4a. Fidelitas generator (C4) - ditambahkan setelah sweep, dispesifikasikan sebelum sweep (§6.2)
+
+Dispesifikasikan di protokol §6.2 sebelum sweep, tetapi tidak ada skrip beku untuknya (§5.3).
+Disetujui user 2026-10-04 sebagai deviasi tercatat dan diimplementasikan di
+`scripts/fidelity_c4.py`. Hanya train dan val; test tidak dibaca (diperiksa dengan assert di skrip).
+Pelaporan saja: tanpa ambang lolos, tanpa pembangkitan ulang, tanpa keputusan yang bergantung
+padanya. Trace sintetis diperiksa md5-nya sama dengan upaya 1 (K6).
+
+Dua perbandingan dengan metrik yang sama:
+
+- **Batas intra-dataset:** riil-train vs riil-val. Riil-val memuat pergeseran beban terhadap train
+  (protokol §1.2), jadi batas ini longgar.
+- **Sintetis vs riil-train.** Ini sekaligus data latih `aug_subsample` vs data latih `real_only`:
+  kedua deret diambil lewat `train_online.split_arrivals()`, persis yang dipakai run.
+
+Metrik per slice: statistik KS D dan Wasserstein-1 (Mbps) pada marginal; |selisih ACF| pada lag
+1-10 (rata-rata dan maksimum atas lag; per lag di `fidelity_c4_acf.csv`). Discriminator: logistic
+regression terstandardisasi pada jendela geser 50 x 3, 5-fold stratified tanpa shuffle, sehingga
+tiap fold adalah blok berurutan dari tiap deret dan jendela yang tumpang tindih hanya bocor di batas
+fold; AUC 0,5 = tak terbedakan.
+
+<!-- BEGIN GENERATED c4_marginal -->
+| perbandingan                  | slice   |   KS D |   W1 (Mbps) |   |dACF| rata2 lag 1-10 |   |dACF| maks lag 1-10 |
+|:------------------------------|:--------|-------:|------------:|------------------------:|-----------------------:|
+| batas: riil-train vs riil-val | p1      |  0.222 |       0.802 |                   0.140 |                  0.221 |
+| batas: riil-train vs riil-val | p2      |  0.222 |       0.803 |                   0.138 |                  0.222 |
+| batas: riil-train vs riil-val | p4      |  0.229 |       0.803 |                   0.146 |                  0.209 |
+| sintetis vs riil-train        | p1      |  0.352 |       0.366 |                   0.160 |                  0.196 |
+| sintetis vs riil-train        | p2      |  0.347 |       0.372 |                   0.123 |                  0.194 |
+| sintetis vs riil-train        | p4      |  0.362 |       0.365 |                   0.130 |                  0.169 |
+<!-- END GENERATED c4_marginal -->
+
+<!-- BEGIN GENERATED c4_disc -->
+| perbandingan                  | slice                |   AUC discriminator (5-fold) |   AUC sd antar fold |   jumlah jendela |
+|:------------------------------|:---------------------|-----------------------------:|--------------------:|-----------------:|
+| batas: riil-train vs riil-val | semua (jendela 50x3) |                        0.836 |               0.252 |          719.000 |
+| sintetis vs riil-train        | semua (jendela 50x3) |                        0.534 |               0.327 |         1128.000 |
+<!-- END GENERATED c4_disc -->
+
+Statistik deskriptif per deret (data latih `real_only`, data latih `aug_subsample`, dan riil-val
+sebagai rujukan batas):
+
+<!-- BEGIN GENERATED c4_desc -->
+| data                     | slice   |   baris |   mean |    sd |   min |    p5 |   p50 |   p95 |   max |
+|:-------------------------|:--------|--------:|-------:|------:|------:|------:|------:|------:|------:|
+| riil-train (real_only)   | p1      |     613 |  3.554 | 0.962 | 0.310 | 3.116 | 3.308 | 6.818 | 7.752 |
+| riil-train (real_only)   | p2      |     613 |  3.554 | 0.961 | 0.297 | 3.113 | 3.306 | 6.819 | 8.113 |
+| riil-train (real_only)   | p4      |     613 |  4.274 | 0.976 | 0.339 | 3.708 | 4.042 | 7.599 | 8.573 |
+| sintetis (aug_subsample) | p1      |     613 |  3.411 | 0.323 | 2.442 | 2.897 | 3.389 | 3.969 | 4.653 |
+| sintetis (aug_subsample) | p2      |     613 |  3.420 | 0.334 | 2.423 | 2.907 | 3.381 | 4.001 | 4.378 |
+| sintetis (aug_subsample) | p4      |     613 |  4.143 | 0.333 | 3.309 | 3.632 | 4.127 | 4.692 | 5.103 |
+| riil-val                 | p1      |     204 |  4.355 | 1.700 | 3.075 | 3.131 | 3.323 | 7.253 | 7.649 |
+| riil-val                 | p2      |     204 |  4.356 | 1.707 | 3.081 | 3.137 | 3.323 | 7.338 | 7.814 |
+| riil-val                 | p4      |     204 |  5.076 | 1.710 | 3.665 | 3.706 | 4.056 | 8.023 | 8.574 |
+<!-- END GENERATED c4_desc -->
+
+Bacaan, terbatas pada apa yang ditunjukkan tabel (tanpa uji):
+
+- **Sebaran.** Di ketiga slice, sd sintetis jauh lebih kecil daripada riil-train, dan p95 serta
+  maksimumnya tidak mencapai bagian atas riil-train; mean sintetis sedikit lebih rendah. Ini mode
+  collapse yang sudah tercatat di protokol §6.1. Riil-val punya mean dan sd lebih tinggi daripada
+  riil-train.
+- **Marginal.** KS D sintetis vs riil-train lebih besar daripada batas di ketiga slice, sedangkan
+  W1 lebih kecil daripada batas. Keduanya mengukur hal berbeda: KS menangkap bentuk distribusi
+  (sintetis terkonsentrasi), W1 menangkap jarak perpindahan massa dalam Mbps (pergeseran beban
+  riil-val memindahkan massa lebih jauh).
+- **ACF.** |selisih ACF| sintetis sebanding dengan batas: rata-ratanya atas lag lebih besar
+  daripada batas di P1 dan lebih kecil di P2 dan P4; maksimumnya lebih kecil daripada batas di
+  ketiga slice.
+- **Discriminator.** AUC batas lebih tinggi daripada AUC sintetis vs riil-train, yang dekat 0,5;
+  sd antar fold besar pada keduanya. **Batasan metode:** classifier linear atas nilai jendela hanya
+  memisahkan perbedaan lokasi per fitur, bukan perbedaan sebaran. Mode collapse adalah perbedaan
+  sebaran, jadi AUC dekat 0,5 di sini **tidak** berarti sintetis tak terbedakan; tabel deskriptif
+  dan KS menunjukkan sebaliknya. Classifier ditetapkan sebelum hasil dilihat dan tidak diganti.
+- **Untuk temuan `aug_subsample` pada DQN/DDQN (§2).** Statistik ini hanya menunjukkan bahwa data
+  latih `aug_subsample` berbeda dari data latih `real_only` terutama pada sebaran (lebih sempit,
+  tanpa puncak beban tinggi), sedikit pada lokasi, dan sebanding pada struktur ACF. Statistik ini
+  tidak menunjukkan mengapa DQN/DDQN yang dilatih padanya mencapai violation test lebih rendah, dan
+  tidak mendukung klaim kausal apa pun.
+
+---
+
 ## 5. Seluruh deviasi
 
 ### 5.1 Sebelum sweep (rinci di protokol, "Penyimpangan dari rencana")
@@ -494,9 +579,11 @@ Tidak ada yang mengubah perintah, seed, kode, data, atau commit; semuanya hanya 
    selisih ACF lag 1-10, dan AUC discriminator terhadap batas riil-train vs riil-val. Tidak ada
    skrip beku yang mengimplementasikannya; `analyze_v2.py` tidak memuatnya, dan
    `make_synth_trace.py` hanya menghitung std ratio, KS, dan ACF lag 1 untuk gerbang kualitas §6.1.
-   Celah ini ditemukan setelah sweep. Tidak dikerjakan sekarang karena itu berarti menulis analisis
-   baru setelah test dibuka; analisis ini tidak memakai test, jadi bisa ditambahkan kemudian sebagai
-   deviasi tercatat bila disetujui.
+   Celah ini ditemukan setelah sweep. **2026-10-04: disetujui user sebagai deviasi tercatat**,
+   diimplementasikan di `scripts/fidelity_c4.py` (train dan val saja), dan dilaporkan di §4a.
+   Pilihan yang tidak dirinci §6.2 ditetapkan di skrip sebelum dijalankan: logistic regression
+   sebagai "classifier sederhana", fold berurutan tanpa shuffle, |selisih ACF| diringkas sebagai
+   rata-rata dan maksimum atas lag 1-10.
 3. Bagian §3.6 (letak checkpoint) adalah tambahan post hoc, dilabeli demikian.
 4. `scripts/fill_results_v2.py` ditambahkan untuk mengisi dokumen ini; ia tidak menghitung ulang
    statistik apa pun dari `analyze_v2.py`.
@@ -513,5 +600,6 @@ Tidak ada yang mengubah perintah, seed, kode, data, atau commit; semuanya hanya 
 - JSON per run, `run.log`, `manifest_*.json`, dan `operations.log` di `results/final-v2/`.
 - Seluruh keluaran analisis di `results/analysis-v2/`: `per_run.csv`, `primary.csv`,
   `exploratory.csv`, `iqm.csv`, `poi.csv`, `secondary.csv`, `scenarios.csv`, `sensitivity.csv`,
-  `curves.csv`, `curves/*.png`, `table_primary_v2.tex`, `table_cells_v2.tex`, `report.md`.
+  `curves.csv`, `curves/*.png`, `table_primary_v2.tex`, `table_cells_v2.tex`, `report.md`; dan
+  keluaran C4 `fidelity_c4.csv`, `fidelity_c4_acf.csv`, `fidelity_c4_desc.csv`, `fidelity_c4.md`.
 - `revision/` dan `revisi/` tidak disentuh.

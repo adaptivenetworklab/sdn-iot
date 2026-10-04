@@ -7,6 +7,8 @@ primer, eksploratif, iqm, poi, sekunder, skenario, sensitivitas.
 Blocks computed here:
   integrity  - run count, commit, split, device, steps from every run's JSON; retries from run.log
   ckpt       - POST HOC, EXPLORATORY: where the val probe placed the selected checkpoint
+Blocks copied verbatim from results/analysis-v2/fidelity_c4.md (scripts/fidelity_c4.py):
+c4_marginal, c4_disc, c4_desc.
 """
 
 import json
@@ -23,10 +25,13 @@ SECTIONS = {"primer": "Primer", "eksploratif": "Eksploratif", "iqm": "IQM", "poi
             "sekunder": "Sekunder", "skenario": "Skenario", "sensitivitas": "Sensitivitas"}
 
 
-def report_sections():
-    parts = re.split(r"^## ", (ANA / "report.md").read_text(encoding="utf-8"), flags=re.M)[1:]
+C4 = {"c4_marginal": "Marginal", "c4_disc": "Discriminator", "c4_desc": "Deskriptif"}
+
+
+def report_sections(path=ANA / "report.md", sections=SECTIONS):
+    parts = re.split(r"^## ", path.read_text(encoding="utf-8"), flags=re.M)[1:]
     out = {}
-    for name, prefix in SECTIONS.items():
+    for name, prefix in sections.items():
         hit = [p for p in parts if p.startswith(prefix)]
         assert len(hit) == 1, f"section {prefix!r} not found exactly once"
         out[name] = hit[0].split("\n", 1)[1].strip()
@@ -63,7 +68,8 @@ def ckpt():
 
 
 def main():
-    blocks = report_sections() | {"integrity": integrity(), "ckpt": ckpt()}
+    blocks = (report_sections() | report_sections(ANA / "fidelity_c4.md", C4)
+              | {"integrity": integrity(), "ckpt": ckpt()})
     text = DOC.read_text(encoding="utf-8")
     for name, body in blocks.items():
         pat = re.compile(rf"(<!-- BEGIN GENERATED {name} -->\n).*?(<!-- END GENERATED {name} -->)", re.S)
