@@ -223,7 +223,7 @@ Smart Building (DHT11)& 1 & P1 & Lowest  & 6.0 \\
 \bottomrule
 \end{tabular}
 \\[3pt]
-\parbox{\columnwidth}{\footnotesize \rev{Thresholds are per-slice operating points taken from the median one-way delay of the unpoliced trace (6.07, 71.60, and 6.90 ms for P1, P2, and P4), not a priority ordering: P1 carries the tightest numeric threshold because DHT11 traffic is intrinsically light, while P4 carries the highest priority. Both are reported so that the two are not confused.}}
+\parbox{\columnwidth}{\footnotesize \rev{The thresholds are design parameters of the simulator, not a priority ordering, and are not derived from the measured trace: the median measured one-way delay on the real training split is 6.49, 8.37, and 6.52 ms for P1, P2, and P4. The 70 ms threshold of P2 matches the median of the synthetic dataset of the earlier version of this work (70.77 ms), not a real measurement. P1 carries the tightest numeric threshold while P4 carries the highest priority; both are reported so that the two are not confused. Violation rates re-scored at 0.5, 0.75, 1.5, and 2 times these thresholds and at the measured medians form an exploratory sensitivity analysis} \textcolor{red}{[V2]}.}
 \end{table}
 
 \begin{itemize}
@@ -265,7 +265,7 @@ The packet drop logic, as defined in (\ref{eq:drop}), functions as a determinist
 %% since state, action and reward define the MDP rather than a preprocessing step.
 \subsubsection{State Space}
 
-\rev{The MDP state \m{s_t} observed by the agent is a 12-dimensional vector, obtained by measuring four telemetry features on each of the three monitored ports (P1, P2, P4): received throughput (\m{RX_{mbps}}), RX utilization percentage (\m{U}, given in (\ref{eq:util})), one-way delay (\m{delay_{ms}}), and the current policing rate (\m{Policing_{kbps}}). Formally, \m{s_t = [RX_{mbps},U,delay_{ms},Policing_{kbps}]_{p1} \oplus [\cdot]_{p2} \oplus [\cdot]_{p4} \in \mathbb{R}^{12}}, where \m{\oplus} denotes vector concatenation. All 12 features are standardized by a running z-score, given in (\ref{eq:zscore}), before being passed to the Actor and Critic networks.}
+\rev{The MDP state \m{s_t} observed by the agent is a 12-dimensional vector, obtained by measuring four telemetry features on each of the three monitored ports (P1, P2, P4): received throughput (\m{RX_{mbps}}), RX utilization percentage (\m{U}, given in (\ref{eq:util})), one-way delay (\m{delay_{ms}}), and the current policing rate (\m{Policing_{kbps}}). Formally, \m{s_t = [RX_{mbps},U,delay_{ms},Policing_{kbps}]_{p1} \oplus [\cdot]_{p2} \oplus [\cdot]_{p4} \in \mathbb{R}^{12}}, where \m{\oplus} denotes vector concatenation. Before being passed to the Actor and Critic networks, the 12 features are divided by fixed constants: arrival rate by 10 Mbps, utilization by 2, delay by the slice's own SLA threshold \m{\tau_p}, and policing rate by the link capacity \m{C}. The scaling is fixed rather than running, so every method receives identical inputs.}
 
 \subsubsection{Action Space}
 
@@ -297,7 +297,7 @@ The packet-drop penalty, as defined in (\ref{eq:pdrop}), quantifies network unre
 P_{drop} = \text{clip}\left( \sum_{i \in \{1,2,4\}}{Drop_{pi}},\,0,\,5 \right)
 \end{equation}
 
-\rev{The total reward used for pre-training on the collected dataset, given in (\ref{eq:rtotal}), applies the sigmoid penalty of (\ref{eq:sigpen}) to all three monitored ports, with the healthcare slice weighted twice as heavily as P1 or P2. This weighting enforces a priority-aware strategy while still rewarding improvement on every slice.}
+\rev{The total reward of (\ref{eq:rtotal}) applies the sigmoid penalty of (\ref{eq:sigpen}) to all three monitored ports, with the healthcare slice weighted twice as heavily as P1 or P2, together with (\ref{eq:thr}) and (\ref{eq:pdrop}). It is the reward of the earlier offline formulation of this work, defined on the collected dataset, and is not used to train or evaluate the agents reported here.}
 
 \begin{equation}\label{eq:rtotal}
 \begin{split}
@@ -306,7 +306,7 @@ R_{total} = {}& \left( 5 R_{thr} \right) - \left( 10 P_{lat}(delay_{p4},\tau_{p4
 \end{split}
 \end{equation}
 
-\rev{For the closed-loop evaluation of Section~\ref{sec:results} the reward is restated in SLA-relative units, given in (\ref{eq:rsim}), so that the three slices remain commensurate despite thresholds that differ by an order of magnitude:}
+\rev{All agents in this study are trained online in the queueing simulator of Section~\ref{sec:evalenv}, with the reward of (\ref{eq:rsim}). It is stated in SLA-relative units so that the three slices remain commensurate despite thresholds that differ by an order of magnitude; \m{Drop_p} is the traffic, in Mb, dropped by slice \m{p}'s buffer in that step. The reward is divided by the fixed reward scale of Table~\ref{tab:2}, the standard deviation of the unscaled reward under No Control on the training split:}
 
 \begin{equation}\label{eq:rsim}
 R_{sim} = -\left( \sum_{p \in \{1,2,4\}} \max\left(0,\; \frac{delay_p}{\tau_p} - 1 \right) + \sum_{p} Drop_p \right)
@@ -316,15 +316,13 @@ R_{sim} = -\left( \sum_{p \in \{1,2,4\}} \max\left(0,\; \frac{delay_p}{\tau_p} -
 z = \frac{x - \mu}{\sigma}
 \end{equation}
 
-The z-score standardization method, as formulated in (\ref{eq:zscore}), transforms input features to follow a normal distribution with a mean of zero and a variance of one. This pre-processing procedure is critical for balancing the contributions of features with heterogeneous scales, thereby preventing gradient dominance by large numerical values and ensuring training stability.
+\rev{The z-score standardization of (\ref{eq:zscore}) is applied to the generator's training windows (Section~\ref{sec:aug}), with \m{\mu} and \m{\sigma} estimated per feature on the training split. The agent's state is not standardized this way; it uses the fixed scaling described above.}
 
 \subsection{Data Augmentation}\label{sec:aug}
 
-The data initialization phase utilizes a Gaussian Noise Injection technique, as formally described in (\ref{eq:noise}). This procedure integrates additive noise, where \(\epsilon \sim N(0,0.5)\), into the input space primarily to mitigate training instabilities and prevent the occurrence of mode collapse. This approach aligns with the stabilization principles proposed by Arjovsky for Generative Adversarial Networks (GANs), ensuring model convergence even when real and synthetic data distributions exhibit minimal overlap\cite{b38}. Furthermore, the injection of Gaussian noise serves as a robust data augmentation strategy for Reinforcement Learning (RL) agents; by introducing variance into state representations, the model achieves enhanced environmental diversity and improved generalization capabilities. The specific selection of a 0.5 standard deviation was determined through empirical hyperparameter tuning, specifically tailored to the normalization scale of the research dataset.
-
-\begin{equation}\label{eq:noise}
-x_{noisy} = x_{real} + \epsilon,\quad\epsilon \sim \mathcal{N}\left( 0,\sigma^{2} \right)
-\end{equation}
+%% V2: the former Gaussian noise-injection paragraph and its equation were removed; no noise
+%% injection exists in the V2 pipeline (scripts/make_synth_trace.py).
+\rev{The generator follows the Wasserstein Generative Adversarial Network (GAN) formulation}\cite{b38}\rev{ and is trained on the training split only. Each training sample is a sliding window of 50 consecutive steps of the three per-slice arrival rates, flattened and standardized per feature as in (\ref{eq:zscore}). After training, windows drawn from the generator are de-standardized, concatenated to the length of the training split, and clipped at zero, because arrival rates cannot be negative. No noise is injected into the real data or into the agent's state.}
 
 The Critic's objective function, formulated in (\ref{eq:ld}), minimizes the Wasserstein distance between real and generated data distributions to enhance discriminative precision while ensuring training stability. To enforce the 1-Lipschitz continuity constraint, a gradient penalty term is integrated to penalize the L2 norm of the gradient with respect to interpolated samples when it deviates from unity, following the WGAN-GP formulation of Gulrajani et al.\cite{b39}
 
@@ -433,6 +431,8 @@ delay_p &= b_p' / \mu_p
 \end{itemize}
 
 \rev{The trace is split temporally into training, validation and test segments of 613, 204 and 205 rows (60, 20 and 20 percent). Agents are trained on the training split only, and every statistic used by a policy or by the reward (mean demand, link capacity, reward scale) is estimated on it; the test split is evaluated once. Each learner is trained on three versions of the training data: the real training split followed by a synthetic trace of the same length (real + synthetic), the real split alone (real only), and the synthetic trace alone (synthetic only). Evaluation is always on real traffic. Episodes last 50 steps and start from a random initial allocation. Each run trains for at most 300,000 environment steps; every 25,000 steps the policy is probed on 20 fixed validation episodes, the checkpoint with the lowest validation violation is restored at the end, and that checkpoint is evaluated once on 20 test episodes. Hyperparameters marked \m{^\dagger} in Table~\ref{tab:2} were selected per method on the validation split from an eight-configuration grid with two seeds each, with the safety correction off. Every configuration is run for 20 seeds, and seed \m{i} produces the same environment realization for every method, so all comparisons are paired by seed. The primary comparisons form four families: (a) safety correction on versus off for each method; (b) SDH-PPO versus Demand Proportional, both with the correction; (c) the three training-data versions for each learner, without the correction; and (e) each Demand-Proportional-prior variant versus Demand Proportional, with the correction. They are tested with the two-sided Wilcoxon signed-rank test on the paired differences, Holm-corrected within each family, with the paired t-test as a companion. Intervals are percentile bootstrap 95 percent confidence intervals of the mean paired difference (10,000 resamples), and effect size is the matched-pairs rank-biserial correlation. The dueling-head comparison (d) is reported as exploratory, without a significance test.}
+
+\rev{All runs were trained and evaluated on CPU, with the PyTorch 2.7.1 CPU build and Python 3.13.5 under Windows 11, on a single laptop with an Intel Core i7-14650HX processor (16 cores, 24 threads) and 32 GB of RAM; nothing in the control loop runs on the Raspberry Pi gateways, which only collect the traces. The 760 runs of the final sweep took 347.1 hours of summed per-run wall time and finished in 23.3 hours of wall clock, with 12 and later 16 runs in parallel.}
 
 \begin{table}[htbp]
 \centering
