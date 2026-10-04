@@ -87,7 +87,7 @@ Despite these algorithmic advancements, there is a critical operational gap that
 %% NEW PARAGRAPH (E1/T4): motivates the physical testbed without overclaiming.
 \textcolor{red}{[REWRITE: menunggu bingkai]} \rev{While simulation and emulation frameworks provide controlled, reproducible environments for exploring large-scale topologies, they typically abstract away execution-level effects that matter for real-time orchestration decisions: kernel-level packet scheduling latency, container and operating-system scheduling jitter under resource contention, and the wall-clock inference cost of the orchestration agent itself}\cite{b47}, \cite{b3}. \rev{To ground the traffic model of this study in such execution-level constraints, a physical prototype testbed built from Raspberry Pi single-board computers, Open vSwitch, and the Ryu SDN controller was deployed to collect the arrival traces used throughout. This complements, rather than replaces, the simulation-based results reported elsewhere in the literature.}
 
-To bridge the operational gap between theoretical simulation and physical deployment, this research introduces SDH-PPO (Safe-Driven Hybrid Proximal Policy Optimization), an advanced reinforcement learning framework engineered specifically for microservices-based SDN orchestration. \rev{SDH-PPO addresses microservice volatility through a continuous-action policy-gradient agent that emits one policing-rate adjustment per slice, augmented with a Dueling Critic value-advantage head and a rule-based safety-margin correction that raises a slice's rate once its measured delay passes a fixed fraction of that slice's own SLA.} Furthermore, to overcome the convergence failures caused by static training datasets, the framework integrates a Wasserstein Generative Adversarial Network with Gradient Penalty (WGAN-GP) to synthesize extreme network variance, proactively exposing the agent to latency anomalies before training.
+To bridge the operational gap between theoretical simulation and physical deployment, this research introduces SDH-PPO (Safe-Driven Hybrid Proximal Policy Optimization), an advanced reinforcement learning framework engineered specifically for microservices-based SDN orchestration. \rev{SDH-PPO addresses microservice volatility through a continuous-action policy-gradient agent that emits one policing-rate adjustment per slice, augmented with a Dueling Critic value-advantage head and a rule-based safety-margin correction that raises a slice's rate once its queueing delay passes a fixed fraction of that slice's own SLA.} Furthermore, to overcome the convergence failures caused by static training datasets, the framework integrates a Wasserstein Generative Adversarial Network with Gradient Penalty (WGAN-GP) to synthesize extreme network variance, proactively exposing the agent to latency anomalies before training.
 
 \textcolor{red}{[REWRITE: menunggu bingkai]} The primary contributions of this paper are explicitly defined as follows:
 
@@ -249,15 +249,7 @@ The bandwidth utilization metric, as formulated in (\ref{eq:util}), calculates t
 U = \left( \frac{RX_{mbps} \times 1000}{Policing_{kbps}} \right) \times 100
 \end{equation}
 
-\begin{equation}\label{eq:drop}
-D = \begin{cases}
-\dfrac{({RX}_{mbps}\cdot 1000) - {Policing}_{kbps}}{80} & \\
-\quad \text{if } {RX}_{mbps}\cdot 1000 > {Policing}_{kbps} & \\[2pt]
-0 \quad \text{otherwise} &
-\end{cases}
-\end{equation}
-
-The packet drop logic, as defined in (\ref{eq:drop}), functions as a deterministic model for the SDN traffic policing mechanism by calculating the volume of discarded packets when ingress traffic exceeds the prescribed bandwidth threshold. By incorporating a constant divisor of 80 to approximate average packet sizes, the formula effectively converts the excess bitrate into a discrete packet loss count, thereby maintaining mathematical consistency between throughput and drop metrics in the synthetic dataset.
+\rev{Packet drops are not taken from the testbed. The policing rate was held at 1,000,000 kbps throughout the measurement campaign, and the per-slice drop columns of the collected trace are zero in every row. A drop is therefore defined only inside the queueing simulator of Section~\ref{sec:evalenv}: \m{Drop_p} is the traffic, in Mb, that overflows slice \m{p}'s finite buffer in a step, given with the queue update in (\ref{eq:queue}).}
 
 \subsection{Markov Decision Process Formulation}\label{sec:mdp}
 
@@ -279,7 +271,7 @@ a_{cont}^{(p)} = \frac{\rho_{t + 1}^{(p)} - \rho_{t}^{(p)}}{g\,\rho_{t}^{(p)}},\
 
 \subsubsection{Reward Function}
 
-\rev{All agents in this study are trained online in the queueing simulator of Section~\ref{sec:evalenv}, with the reward of (\ref{eq:rsim}). It is stated in SLA-relative units so that the three slices remain commensurate despite thresholds that differ by an order of magnitude; \m{Drop_p} is the traffic, in Mb, dropped by slice \m{p}'s buffer in that step. The reward is divided by the fixed reward scale of Table~\ref{tab:2}, the standard deviation of the unscaled reward under No Control on the training split:}
+\rev{All agents in this study are trained online in the queueing simulator of Section~\ref{sec:evalenv}, with the reward of (\ref{eq:rsim}). It is stated in SLA-relative units so that the three slices remain commensurate despite thresholds that differ by an order of magnitude; \m{Drop_p} is the traffic, in Mb, dropped by slice \m{p}'s buffer in that step, as given in (\ref{eq:queue}). The reward is divided by the fixed reward scale of Table~\ref{tab:2}, the standard deviation of the unscaled reward under No Control on the training split:}
 
 \begin{equation}\label{eq:rsim}
 R_{sim} = -\left( \sum_{p \in \{1,2,4\}} \max\left(0,\; \frac{delay_p}{\tau_p} - 1 \right) + \sum_{p} Drop_p \right)
@@ -383,19 +375,20 @@ a_t^{(p)} \qquad \text{otherwise}
 
 \rev{\textbf{Grounded in measurement.} The per-slice offered load is replayed from the \m{RX_{mbps}} columns of the collected trace, which are derived from OvS byte counters and therefore do not depend on clock synchronization between the gateway and the collector. The measured mean demands are 3.85, 3.85, and 4.57 Mbps for P1, P2, and P4.}
 
-\rev{\textbf{Not grounded in measurement.} The relationship between the policing rate and the resulting delay is \emph{modelled}, not measured. The measurement campaign held the policing rate fixed at 1,000,000 kbps throughout, so no observation of the effect of varying that rate exists. Measured one-way delay is also deliberately excluded as ground truth: 13.19 percent of raw delay samples are negative, indicating that they are dominated by clock offset between sender and collector rather than by queueing. The control results reported here are therefore simulation results, not testbed measurements.}
+\rev{\textbf{Not grounded in measurement.} The relationship between the policing rate and the resulting delay is \emph{modelled}, not measured. The measurement campaign held the policing rate fixed at 1,000,000 kbps throughout, so no observation of the effect of varying that rate exists. Measured one-way delay is also deliberately excluded as ground truth. In the raw listener log, 13.19 percent of all delay samples are negative, which shows that the sender and collector clocks were not synchronized; every negative sample belongs to an earlier log format recorded on 14--17 January 2026, before the trace was collected. The trace used here, collected on 19 January 2026, contains no negative delay, but clock synchronization was not verified for that period, so a constant clock offset in its delay values cannot be ruled out. The control results reported here are therefore simulation results, not testbed measurements.}
 
 \rev{Each slice is modelled as a finite-buffer fluid queue stepped at \m{dt = 1} s, matching the collector interval, as given in (\ref{eq:queue}):}
 
 \begin{equation}\label{eq:queue}
 \begin{split}
 served_p &= \min(b_p + \lambda_p,\; \mu_p\,dt) \\
+Drop_p &= \max\!\left(0,\; b_p + \lambda_p - served_p - B_p\right) \\
 b_p' &= \min\!\left(b_p + \lambda_p - served_p,\; B_p\right) \\
 delay_p &= b_p' / \mu_p
 \end{split}
 \end{equation}
 
-\rev{where \m{\lambda_p} is the replayed arrival, \m{\mu_p} the policing rate set by the action, \m{b_p} the backlog, and \m{B_p} the buffer (200 ms). Because the action changes \m{b_p'}, which is part of the next state, the formulation is a genuine MDP. The requested rates are projected onto \m{\sum_p \mu_p \le C} with \m{C = 12} Mbps, set from the training split as 1.05 times its mean total demand of 11.38 Mbps. The mean total demand on the validation and test splits is 13.79 and 13.46 Mbps, so the link is contended and raising one slice's rate takes capacity from the others. Without this coupling the optimal policy degenerates to maximizing every rate.}
+\rev{where \m{\lambda_p} is the replayed arrival, \m{\mu_p} the policing rate set by the action, \m{b_p} the backlog, and \m{B_p} the buffer, sized to hold 200 ms of traffic at \m{\mu_p}; \m{Drop_p}, in Mb, is the traffic that overflows it. Because the action changes \m{b_p'}, which is part of the next state, the formulation is a genuine MDP. The requested rates are projected onto \m{\sum_p \mu_p \le C} with \m{C = 12} Mbps, set from the training split as 1.05 times its mean total demand of 11.38 Mbps. The mean total demand on the validation and test splits is 13.79 and 13.46 Mbps, so the link is contended and raising one slice's rate takes capacity from the others. Without this coupling the optimal policy degenerates to maximizing every rate.}
 
 \rev{Six learned policies are compared: DQN and Double Dueling DQN, both using branching Q-heads with 11 bins per slice, an \m{\epsilon}-greedy schedule decaying from 1.0 to 0.05 over 30,000 steps, a replay buffer of 50,000 transitions, and target synchronization every 2,000 steps; standard PPO and the proposed SDH-PPO; and two SDH-PPO variants that use the Demand Proportional rule below as a prior, one whose actor is pre-trained by behaviour cloning of that rule (20,000 transitions, 200 epochs, learning rate \m{10^{-3}}) and one that executes \m{\mathrm{clip}(a_{DP} + 0.25\,a_{agent}, -1, 1)} (residual). Settings are listed in Table~\ref{tab:2}. Every method, learned or not, is run both with and without the safety-margin correction of (\ref{eq:safety}). Four non-learned baselines are also included, which the previous evaluation lacked:}
 

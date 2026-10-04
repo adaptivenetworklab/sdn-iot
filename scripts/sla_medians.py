@@ -12,7 +12,7 @@ come from clock offset, are kept, as in every other median reported for this tra
   train split        rows 0..612, the first 60 percent, as split_arrivals() cuts it
   V1 synthetic       Reinforcement Learning/final/synthetic_15k_complete_final.csv
 and, for the full trace and the train split, the count and percentage of negative one-way
-delays per port; then the same per port and per log format for the raw listener log
+delays per port; the maximum of the trace's drop columns and its policing rates; then the same per port and per log format for the raw listener log
 pengujian/delay_log.csv, with the time span of each, next to the time span of the trace.
 """
 
@@ -80,6 +80,9 @@ def main():
     for name, df in [("full real trace", real), (f"real train split, rows 0-{n_train - 1}", train)]:
         print(f"{name:28s} {len(df):6d}", negatives(df))
     print(f"trace collected {real['timestamp'].iloc[0]} .. {real['timestamp'].iloc[-1]}")
+    print("trace drop column max and policing rates (kbps), ports", PORTS,
+          [float(real[f"drop_{p}"].max()) for p in PORTS],
+          [sorted(real[f"policing_rate_kbps_{p}"].unique().tolist()) for p in PORTS])
     log = delay_log_negatives()
     print(f"raw listener log {DELAY_LOG.name}: fields, port, first, last, n, negative, percent")
     for (fields, port), (t0, t1, n, neg) in sorted(log.items()):

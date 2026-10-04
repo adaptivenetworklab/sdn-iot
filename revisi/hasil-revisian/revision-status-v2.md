@@ -1,6 +1,6 @@
 # Status item revisi setelah V2 (2026-10-05)
 
-Nomor persamaan mengikuti `main.tex` setelah reward offline lama (7) dan komponennya (4)-(6) dihapus (13 persamaan).
+Nomor persamaan mengikuti `main.tex` setelah reward offline lama (7), komponennya (4)-(6), dan persamaan packet drop testbed (2) dihapus (12 persamaan).
 
 Audit 34 item `Revision Form ICoICT 2026.xlsx` terhadap `main.tex` saat ini (setelah hasil V2
 masuk, commit `2e6b24d` dan sesudahnya). Tidak ada angka hasil di dokumen ini; angka hasil hanya
@@ -18,10 +18,10 @@ Status:
 | Item | Status | Lokasi sekarang | Sisa |
 |---|---|---|---|
 | A1 hybrid action | Tuntas, form usang | Abstract, §III-B Action Space, §III-D Actor | Akronim "Safe-Driven **Hybrid** PPO" di §I tetap (keputusan penamaan); baris "This work" Table I = REWRITE |
-| A2 safety equations | Tuntas | Eq. (12), §III-D-2 | Kuantifikasi kini keluarga (a) di tabel primer; prosa §IV-C `[V2]` |
+| A2 safety equations | Tuntas | Eq. (11), §III-D-2 | Kuantifikasi kini keluarga (a) di tabel primer; prosa §IV-C `[V2]` |
 | A3 Dueling Critic definisi | Tuntas | §III-D Dueling Critic bullet | Hasil kini eksploratif (d) di tabel eksploratif; prosa `[V2]` |
 | A4 EO-WGAN | Tuntas | 0 kemunculan di `main.tex` | - |
-| A5 state space | Tuntas | §III-B State Space | Dikoreksi 2026-10-05: state dibangun simulator (arrival dari trace riil, utilisasi λ/μ, delay antrean, rate; `slice_env.py:197-205,209,222`), skala tetap (`train_online.py:68-83`); z-score (5) hanya untuk jendela latih generator |
+| A5 state space | Tuntas | §III-B State Space | Dikoreksi 2026-10-05: state dibangun simulator (arrival dari trace riil, utilisasi λ/μ, delay antrean, rate; `slice_env.py:197-205,209,222`), skala tetap (`train_online.py:68-83`); z-score (4) hanya untuk jendela latih generator |
 | B1 SLA thresholds | Tuntas | Table II dan catatannya | Dikoreksi 2026-10-05: ambang = parameter desain simulator; median riil-train per port; ambang P2 = median dataset sintetis V1; rujukan ke analisis sensitivitas (`[V2]`, tempatnya menunggu bingkai) |
 | B2 arah klaim | Menunggu bingkai | §IV-B | Prosa `[V2]` |
 | B3 port 3 | Tuntas | §III-A-2, Table II | - |
@@ -41,14 +41,14 @@ Status:
 | E2 resolusi gambar | **Sebagian terbuka** | Fig. 3 dan Fig. 4 baru, 300 dpi, dari `scripts/paper_figures_v2.py` | Fig. 1 dan Fig. 2 masih 96 dpi, tanpa sumber vektor di repo; harus digambar ulang penulis |
 | X1 cross-reference | Tuntas | seluruh dokumen | Compile tanpa referensi undefined |
 | X2 penomoran prioritas | Tuntas | Table II, §III-A-2 | - |
-| X3 reward vs klaim | Tuntas | §III-B-3, Eq. (4) | Dikoreksi 2026-10-05: reward total offline lama dan komponennya (sigmoid penalty, throughput incentive, drop penalty) dihapus beserta persamaannya; agen dilatih online dengan (4) dibagi reward scale (`slice_env.py:237-247`) |
+| X3 reward vs klaim | Tuntas | §III-B-3, Eq. (3) | Dikoreksi 2026-10-05: reward total offline lama dan komponennya (sigmoid penalty, throughput incentive, drop penalty) dihapus beserta persamaannya; agen dilatih online dengan (3) dibagi reward scale (`slice_env.py:237-247`) |
 | X4 restrukturisasi §III | Tuntas | §III | - |
 | X5 fragmen ganda | Tuntas | §III-C | - |
 | X6 sumber ambang | Tuntas | Table II | Lihat B1 |
 | X7 drop-cap | Tuntas | §I | - |
 | N1 heading ganda | Tuntas | semua heading | Terverifikasi di PDF compile |
 | N2 angka hardcoded | Tuntas | Abstract, §V | Angka palsu hilang; prosa hasil `[V2]` |
-| N3 evaluator nama-algoritma | Tuntas | §III-E, Eq. (13) | - |
+| N3 evaluator nama-algoritma | Tuntas | §III-E, Eq. (12) | - |
 | N4 unit safety | Tuntas | §III-D-2 | - |
 | N5 demand_prop dilaporkan | Menunggu bingkai | Abstract/§IV/§V `[V2]`, kontribusi = REWRITE | Kalimat "not beaten by any learned policy" di daftar baseline masih ada (klaim, tidak diubah) |
 
@@ -91,7 +91,7 @@ Framework", "PPO Update Engine", "Experience Relay Buffer" (sic), "Sampled Traje
 (s)", "Environment".
 Bertentangan atau tidak lengkap terhadap V2:
 - **Tidak ada safety-margin correction**: aksi aktor langsung ke Environment, padahal V2 menerapkan
-  koreksi (12) sebelum `env.step` dan menjadikannya faktor on/off.
+  koreksi (11) sebelum `env.step` dan menjadikannya faktor on/off.
 - **"Experience Relay Buffer" dengan transisi (s, a, r, s')** terbaca sebagai replay buffer
   off-policy. PPO V2 on-policy dengan rollout 2.048 step.
 - Critic tidak digambarkan dengan dua head (value dan advantage-residual); nama "dueling" tidak ada.
@@ -128,7 +128,10 @@ bukan dari link yang dimodelkan. Pengaruhnya tidak diukur.
   terjadi selama periode trace. Jam tidak diverifikasi sinkron pada periode trace, sehingga level
   absolut delay di trace (median sekitar 6,5 ms) masih bisa memuat offset jam konstan. Itu belum
   terbukti dan belum diukur; karena itu median trace tidak boleh diperlakukan sebagai delay fisik.
-- **Kalimat paper yang terdampak:** §III-E ("13.19 percent of raw delay samples are negative") benar
-  untuk log mentah tetapi tidak menyebut bahwa nilai itu dari periode sebelum trace; §IV.D (REWRITE)
-  menulis "13.19 percent of one-way delay samples **in the collected trace** are negative", yang
-  keliru untuk trace yang dipakai. Belum diubah.
+- **Kalimat paper yang terdampak:**
+  - §III-E ("Not grounded in measurement") sudah dikoreksi 2026-10-05: nilai negatif dari format log
+    4 kolom 14-17 Jan, sebelum trace; trace 19 Jan tanpa nilai negatif; offset konstan tidak bisa
+    disingkirkan karena sinkronisasi jam tidak diverifikasi.
+  - **§IV.D (REWRITE) masih memuat klaim yang salah:** "13.19 percent of one-way delay samples in the
+    collected trace are negative". Untuk trace yang dipakai angka itu 0. Kalimat ini harus diganti
+    dengan fakta di atas (samakan dengan §III-E) saat §IV.D ditulis ulang.
