@@ -85,11 +85,11 @@ As a solution to the limitations of discrete control, Proximal Policy Optimizati
 Despite these algorithmic advancements, there is a critical operational gap that exposes a major weakness in the existing literature. The majority of current DRL studies for network slicing are exclusively validated using software simulations (such as NS-3) under the assumption of generic network parameter\cite{b15}-\cite{b20}. This theoretical approach fatally overlooks real-world anomalies---such as queuing delays, communication latency overhead, and CPU resource contention---which absolutely disrupt hardware-based Edge infrastructure and Kubernetes/microservices orchestration. These AI policies, which only converge on paper, are bound to fail in responding to the volatility of real-world physical deployments; a critical architectural gap that is the primary focus of this research.
 
 %% NEW PARAGRAPH (E1/T4): motivates the physical testbed without overclaiming.
-\rev{While simulation and emulation frameworks provide controlled, reproducible environments for exploring large-scale topologies, they typically abstract away execution-level effects that matter for real-time orchestration decisions: kernel-level packet scheduling latency, container and operating-system scheduling jitter under resource contention, and the wall-clock inference cost of the orchestration agent itself}\cite{b47}, \cite{b3}. \rev{To ground the traffic model of this study in such execution-level constraints, a physical prototype testbed built from Raspberry Pi single-board computers, Open vSwitch, and the Ryu SDN controller was deployed to collect the arrival traces used throughout. This complements, rather than replaces, the simulation-based results reported elsewhere in the literature.}
+\textcolor{red}{[REWRITE: menunggu bingkai]} \rev{While simulation and emulation frameworks provide controlled, reproducible environments for exploring large-scale topologies, they typically abstract away execution-level effects that matter for real-time orchestration decisions: kernel-level packet scheduling latency, container and operating-system scheduling jitter under resource contention, and the wall-clock inference cost of the orchestration agent itself}\cite{b47}, \cite{b3}. \rev{To ground the traffic model of this study in such execution-level constraints, a physical prototype testbed built from Raspberry Pi single-board computers, Open vSwitch, and the Ryu SDN controller was deployed to collect the arrival traces used throughout. This complements, rather than replaces, the simulation-based results reported elsewhere in the literature.}
 
 To bridge the operational gap between theoretical simulation and physical deployment, this research introduces SDH-PPO (Safe-Driven Hybrid Proximal Policy Optimization), an advanced reinforcement learning framework engineered specifically for microservices-based SDN orchestration. \rev{SDH-PPO addresses microservice volatility through a continuous-action policy-gradient agent that emits one policing-rate adjustment per slice, augmented with a Dueling Critic value-advantage head and a rule-based safety-margin correction that raises a slice's rate once its measured delay passes a fixed fraction of that slice's own SLA.} Furthermore, to overcome the convergence failures caused by static training datasets, the framework integrates a Wasserstein Generative Adversarial Network with Gradient Penalty (WGAN-GP) to synthesize extreme network variance, proactively exposing the agent to latency anomalies before training.
 
-The primary contributions of this paper are explicitly defined as follows:
+\textcolor{red}{[REWRITE: menunggu bingkai]} The primary contributions of this paper are explicitly defined as follows:
 
 \begin{itemize}
 \item
@@ -142,7 +142,7 @@ Furthermore, the structural decomposition of SDN into service-based microsegment
 \cite{b49} & Constrained RL: adaptive Interior-Point Policy Optimization with a projection layer (CMDP) & Continuous & -- & Simulation & Requires stronger theoretical bounds, better sample efficiency, and real-world evaluation \\
 \cite{b50} & DRL-based xApp for O-RAN slice allocation under time-varying SLAs & Discrete (PRB count) & -- & O-RAN emulation testbed (OpenRAN Gym, Colosseum) & Evaluation limited to two latency thresholds due to space constraints \\
 \midrule
-\textbf{This work} & Continuous-action Actor-Critic (Dueling Critic value and advantage-residual head) with rule-based safety-margin correction in SLA-relative units and WGAN-GP traffic augmentation & Continuous, one rate adjustment per slice & \textbf{WGAN-GP} & Physical testbed (Raspberry Pi, OVS, Ryu, Flowvisor) for arrival-trace collection; control evaluated in a shared-capacity queueing simulator, ten seeds & Action-to-delay relationship is modelled by queueing theory, not measured, because the testbed never varied the policing rate; a demand-proportional heuristic still outperforms the learned policy; the Dueling Critic shows no measurable benefit \\
+\textcolor{red}{[REWRITE: menunggu bingkai]} \textbf{This work} & Continuous-action Actor-Critic (Dueling Critic value and advantage-residual head) with rule-based safety-margin correction in SLA-relative units and WGAN-GP traffic augmentation & Continuous, one rate adjustment per slice & \textbf{WGAN-GP} & Physical testbed (Raspberry Pi, OVS, Ryu, Flowvisor) for arrival-trace collection; control evaluated in a shared-capacity queueing simulator, ten seeds & Action-to-delay relationship is modelled by queueing theory, not measured, because the testbed never varied the policing rate; a demand-proportional heuristic still outperforms the learned policy; the Dueling Critic shows no measurable benefit \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -152,7 +152,7 @@ Furthermore, the structural decomposition of SDN into service-based microsegment
 \rev{Beyond the eleven studies detailed in Table~\ref{tab:1}, the surveyed corpus contains work addressing multi-tenant slice management without microservice-level isolation}\cite{b26}, \cite{b27}, \cite{b33}, \rev{strict priority-aware SLA penalties}\cite{b23}, \cite{b24}, \rev{hybrid action spaces for slice sizing}\cite{b28}, \rev{microservice-isolated control planes}\cite{b29}, \cite{b34}, \rev{generative augmentation of slicing traffic}\cite{b31}, \rev{and evaluation on physical infrastructure}\cite{b25}, \cite{b32}.
 
 %% NEW PARAGRAPH (E1/T3): novelty stated as a combination, not as a first.
-\rev{While several works address individual aspects of DRL-based network orchestration, none combine them in the configuration this paper targets. OnSlicing integrates a hybrid action space, physical testbed validation, and constrained-RL safety mechanisms within a single end-to-end slicing framework}\cite{b40}, \rev{and SafeSlice enforces SLA compliance through a learned cost-regressor with Euclidean projection to the nearest safe action}\cite{b41}\rev{; both are close precedents for the safety and physical-validation aspects of this work. However, these systems operate at the RAN and O-RAN control layer, relying on software-defined radio front ends and server-class compute. Separately, REACH and ChainsFormer manage microservice placement and provisioning within Kubernetes but do not reach into the SDN data plane that governs the network resources those microservices depend on}\cite{b47}, \cite{b48}\rev{. The specific combination pursued here---generative traffic augmentation, direct SDN data-plane orchestration for containerized microservices, and grounding in low-cost single-board-computer hardware rather than radio or server infrastructure---was not found together in the reviewed corpus.}
+\textcolor{red}{[REWRITE: menunggu bingkai]} \rev{While several works address individual aspects of DRL-based network orchestration, none combine them in the configuration this paper targets. OnSlicing integrates a hybrid action space, physical testbed validation, and constrained-RL safety mechanisms within a single end-to-end slicing framework}\cite{b40}, \rev{and SafeSlice enforces SLA compliance through a learned cost-regressor with Euclidean projection to the nearest safe action}\cite{b41}\rev{; both are close precedents for the safety and physical-validation aspects of this work. However, these systems operate at the RAN and O-RAN control layer, relying on software-defined radio front ends and server-class compute. Separately, REACH and ChainsFormer manage microservice placement and provisioning within Kubernetes but do not reach into the SDN data plane that governs the network resources those microservices depend on}\cite{b47}, \cite{b48}\rev{. The specific combination pursued here---generative traffic augmentation, direct SDN data-plane orchestration for containerized microservices, and grounding in low-cost single-board-computer hardware rather than radio or server infrastructure---was not found together in the reviewed corpus.}
 
 \subsection{Limitations of Value-Based Algorithms in Resource Orchestration}\label{sec:rw-value}
 
@@ -421,49 +421,60 @@ delay_p &= b_p' / \mu_p
 \end{split}
 \end{equation}
 
-\rev{where \m{\lambda_p} is the replayed arrival, \m{\mu_p} the policing rate set by the action, \m{b_p} the backlog, and \m{B_p} the buffer (200 ms). Because the action changes \m{b_p'}, which is part of the next state, the formulation is a genuine MDP. The requested rates are projected onto \m{\sum_p \mu_p \le C} with \m{C = 12} Mbps against a total mean demand of 12.28 Mbps, so the link is genuinely contended and raising one slice's rate takes capacity from the others. Without this coupling the optimal policy degenerates to maximizing every rate.}
+\rev{where \m{\lambda_p} is the replayed arrival, \m{\mu_p} the policing rate set by the action, \m{b_p} the backlog, and \m{B_p} the buffer (200 ms). Because the action changes \m{b_p'}, which is part of the next state, the formulation is a genuine MDP. The requested rates are projected onto \m{\sum_p \mu_p \le C} with \m{C = 12} Mbps, set from the training split as 1.05 times its mean total demand of 11.38 Mbps. The mean total demand on the validation and test splits is 13.79 and 13.46 Mbps, so the link is contended and raising one slice's rate takes capacity from the others. Without this coupling the optimal policy degenerates to maximizing every rate.}
 
-\rev{Four learned policies are compared: DQN and Double Dueling DQN, both using branching Q-heads with 21 bins per slice, an \m{\epsilon}-greedy schedule decaying from 1.0 to 0.05 over 30,000 steps, a replay buffer of 50,000 transitions, and target synchronization every 500 steps; and standard PPO and the proposed SDH-PPO, sharing the settings of Table~\ref{tab:2}. Four non-learned baselines are also included, which the previous evaluation lacked:}
+\rev{Six learned policies are compared: DQN and Double Dueling DQN, both using branching Q-heads with 11 bins per slice, an \m{\epsilon}-greedy schedule decaying from 1.0 to 0.05 over 30,000 steps, a replay buffer of 50,000 transitions, and target synchronization every 2,000 steps; standard PPO and the proposed SDH-PPO; and two SDH-PPO variants that use the Demand Proportional rule below as a prior, one whose actor is pre-trained by behaviour cloning of that rule (20,000 transitions, 200 epochs, learning rate \m{10^{-3}}) and one that executes \m{\mathrm{clip}(a_{DP} + 0.25\,a_{agent}, -1, 1)} (residual). Settings are listed in Table~\ref{tab:2}. Every method, learned or not, is run both with and without the safety-margin correction of (\ref{eq:safety}). Four non-learned baselines are also included, which the previous evaluation lacked:}
 
 \begin{itemize}
-\item \rev{\emph{No Control}: the policing rate is never adjusted.}
-\item \rev{\emph{Const Max}: every slice requests its maximum rate every step, so the capacity projection alone decides the split.}
-\item \rev{\emph{Threshold}: each slice's rate is raised in proportion to how far its delay has already passed its own SLA, a purely reactive rule.}
-\item \rev{\emph{Demand Proportional}: capacity is divided in proportion to each slice's mean measured demand. This is the strongest non-learned baseline and, as Section~\ref{sec:results} reports, it is not beaten by any learned policy here.}
+\item \rev{\emph{No Control}: the policing rate is never adjusted, so the random initial allocation is kept.}
+\item \rev{\emph{Equal Split}: each slice's rate moves toward an equal share of the capacity, \m{C/3}.}
+\item \rev{\emph{Threshold}: each slice's rate is changed in proportion to \m{delay_p/\tau_p - 1}, so it is raised above the SLA and lowered below it, a purely reactive rule.}
+\item \rev{\emph{Demand Proportional}: capacity is divided in proportion to each slice's mean demand on the training split. This is the strongest non-learned baseline and, as Section~\ref{sec:results} reports, it is not beaten by any learned policy here.}
 \end{itemize}
 
-\rev{Every configuration is run for 10 seeds. Each run trains for 60,000 environment steps and is then evaluated on 20 held-out episodes of 200 steps. Reported intervals are bootstrap 95 percent confidence intervals over the 10 seed means; comparisons use the two-sided Mann-Whitney U test with Holm correction across the family of comparisons, and effect size is reported as the rank-biserial correlation.}
+\rev{The trace is split temporally into training, validation and test segments of 613, 204 and 205 rows (60, 20 and 20 percent). Agents are trained on the training split only, and every statistic used by a policy or by the reward (mean demand, link capacity, reward scale) is estimated on it; the test split is evaluated once. Each learner is trained on three versions of the training data: the real training split followed by a synthetic trace of the same length (real + synthetic), the real split alone (real only), and the synthetic trace alone (synthetic only). Evaluation is always on real traffic. Episodes last 50 steps and start from a random initial allocation. Each run trains for at most 300,000 environment steps; every 25,000 steps the policy is probed on 20 fixed validation episodes, the checkpoint with the lowest validation violation is restored at the end, and that checkpoint is evaluated once on 20 test episodes. Hyperparameters marked \m{^\dagger} in Table~\ref{tab:2} were selected per method on the validation split from an eight-configuration grid with two seeds each, with the safety correction off. Every configuration is run for 20 seeds, and seed \m{i} produces the same environment realization for every method, so all comparisons are paired by seed. The primary comparisons form four families: (a) safety correction on versus off for each method; (b) SDH-PPO versus Demand Proportional, both with the correction; (c) the three training-data versions for each learner, without the correction; and (e) each Demand-Proportional-prior variant versus Demand Proportional, with the correction. They are tested with the two-sided Wilcoxon signed-rank test on the paired differences, Holm-corrected within each family, with the paired t-test as a companion. Intervals are percentile bootstrap 95 percent confidence intervals of the mean paired difference (10,000 resamples), and effect size is the matched-pairs rank-biserial correlation. The dueling-head comparison (d) is reported as exploratory, without a significance test.}
 
 \begin{table}[htbp]
 \centering
-\caption{\rev{Shared Training Hyperparameters}}
+\caption{\rev{Training and Evaluation Settings}}
 \label{tab:2}
 \footnotesize
-\begin{tabular}{lc}
+\begin{tabular}{p{3.6cm}p{4.2cm}}
 \toprule
-\revhdr Hyperparameter & Value \\
+\revhdr Setting & Value \\
 \midrule
-Environment steps per run & 60{,}000 \\
+Environment steps per run (max.) & 300{,}000 \\
+Episode length & 50 steps \\
+Validation probe & every 25{,}000 steps, 20 fixed episodes \\
+Test evaluation & 20 episodes, once \\
+Seeds per configuration & 20, paired \\
 Rollout length (PPO family) & 2{,}048 \\
 Optimization epochs per rollout & 10 \\
 Mini-batch size & 64 \\
 Optimizer & Adam \\
-Learning rate & $3{\times}10^{-4}$ \\
+Learning rate$^\dagger$ & $3{\times}10^{-4}$ PPO, DQN, DDQN; $1{\times}10^{-4}$ SDH-PPO and both variants \\
+Entropy coefficient$^\dagger$ & 0.01 PPO, residual, BC init; 0 SDH-PPO \\
+Action parameterization$^\dagger$ & clip; tanh for BC init \\
+Reward scale$^\dagger$ & 19.0106; 1.0 for residual \\
 Gradient clipping (max-norm) & 0.5 \\
 Discount factor $\gamma$ & 0.99 \\
 GAE $\lambda$ & 0.95 \\
 PPO clip ratio $\epsilon$ & 0.2 \\
-Entropy coefficient & 0.01 \\
 Actor hidden widths & 256, 128 \\
 Replay buffer (DQN, DDQN) & 50{,}000 \\
-Target sync (DQN, DDQN) & every 500 steps \\
-Discretization bins per slice (DQN, DDQN) & 21 \\
+Target sync (DQN, DDQN)$^\dagger$ & every 2{,}000 steps \\
+Bins per slice (DQN, DDQN)$^\dagger$ & 11 \\
+$\epsilon$ decay (DQN, DDQN)$^\dagger$ & 1.0 to 0.05 over 30{,}000 steps \\
+Safety margin $m$ / gain $K$ & 0.8 / 2.0 \\
+Residual bound & 0.25 \\
+BC pre-training & 20{,}000 transitions, 200 epochs, lr $10^{-3}$ \\
 Link capacity $C$ & 12 Mbps \\
 Buffer depth & 200 ms \\
 Action gain $g$ & 0.20 \\
-Seeds per configuration & 10 \\
 \bottomrule
 \end{tabular}
+\\[2pt]
+\parbox{\columnwidth}{\footnotesize \rev{$^\dagger$Selected per method on the validation split (Section~\ref{sec:evalenv}).}}
 \end{table}
 
 \begin{table}[htbp]
@@ -471,7 +482,7 @@ Seeds per configuration & 10 \\
 \caption{WGAN-GP Data Augmentation Hyperparameters}
 \label{tab:2b}
 \footnotesize
-\begin{tabular}{lc}
+\begin{tabular}{p{3.6cm}p{4.2cm}}
 \toprule
 \revhdr Hyperparameter & Value \\
 \midrule
@@ -482,7 +493,8 @@ Adam betas & (0.5, 0.9) \\
 Batch size & 64 \\
 Training epochs & 301 \\
 Generator update frequency & every 5 epochs \\
-Synthetic samples generated & 15{,}000 \\
+Training data & 564 sliding windows of 50 steps $\times$ 3 slices, training split only \\
+Synthetic trace length & 613 rows (length of the training split) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -492,32 +504,33 @@ Synthetic samples generated & 15{,}000 \\
 \subsection{Augmentation Fidelity}\label{sec:aug-fidelity}
 
 %% V2: old prose removed (it claimed high fidelity; protocol v2 C4 measured otherwise).
-%% Table from scripts/paper_tables_v2.py. Fig. 3 image is still the V1 t-SNE.
+%% Table from scripts/paper_tables_v2.py, Fig. 3 from scripts/paper_figures_v2.py.
 \textcolor{red}{[V2]}
 
 \input{tables/v2_fidelity.tex}
 
-\begin{figure}[htbp]
+%% Generated by scripts/paper_figures_v2.py (train and validation only). Replaces the V1 t-SNE.
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/fig3_tsne.png}
-\caption{t-SNE visualization of real and WGAN-GP-generated samples.}
+\includegraphics[width=\textwidth]{figures/fig3_fidelity_v2.png}
+\caption{\rev{Marginal empirical distribution (top) and autocorrelation at lags 1 to 10 (bottom) of the per-slice arrival rate for the real training split, the WGAN-GP synthetic trace, and the real validation split. Metrics are in Table~\ref{tab:v2_fidelity}.}}
 \label{fig:3}
-\end{figure}
+\end{figure*}
 
 \subsection{Comparative Performance}\label{sec:comparative}
 
 %% V2: V1 prose and tables removed. Tables from scripts/paper_tables_v2.py.
-%% Fig. 4 image is still the V1 per-seed plot.
 \textcolor{red}{[V2]}
 
 \input{tables/v2_cells.tex}
 
-\begin{figure}[htbp]
+%% Generated by scripts/paper_figures_v2.py from results/analysis-v2/per_run.csv.
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/fig4_seed_distribution.png}
-\caption{\textcolor{red}{[V2]}}
+\includegraphics[width=\textwidth]{figures/fig4_seed_distribution_v2.png}
+\caption{\rev{Per-seed total SLA violation rate on the test split, training data real + synthetic, with and without the safety-margin correction. Each point is one of 20 seeds; boxes show the median and quartiles.}}
 \label{fig:4}
-\end{figure}
+\end{figure*}
 
 \input{tables/v2_primary.tex}
 
@@ -534,7 +547,7 @@ Synthetic samples generated & 15{,}000 \\
 
 \subsection{Discussion and Limitations}\label{sec:limitations}
 
-\rev{Four limitations bound the claims above and are stated explicitly rather than left for the reader to infer.}
+\textcolor{red}{[REWRITE: menunggu bingkai]} \rev{Four limitations bound the claims above and are stated explicitly rather than left for the reader to infer.}
 
 \rev{\emph{The control results are simulation, not measurement.} The arrival process is replayed from measured traffic, but the mapping from policing rate to delay is derived from queueing theory. The measurement campaign never varied the policing rate, so this mapping was never observed. A sweep over the policing rate on physical hardware, with clock synchronization established beforehand, is the necessary next step; a protocol for it is specified but was not executed for this paper.}
 
