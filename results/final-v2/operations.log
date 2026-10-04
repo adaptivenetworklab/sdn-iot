@@ -1,0 +1,16 @@
+Operational changes during the final sweep (speed only; no change to commands, seeds, code or data).
+
+2026-10-03T15:36Z  Driver started: run_final.py, --parallel 12, BelowNormal priority, detached via WMI.
+2026-10-03 ~20:20Z Workers ran ~4.7x slower than tuning: 12 workers used ~6 cores (CPU ~36%).
+                   Cause: Windows power throttling of the detached background processes.
+                   Raised driver+workers to Normal priority; opted every sweep process out of
+                   power throttling (SetProcessInformation ProcessPowerThrottling, state 0),
+                   re-applied every minute by the watcher for new workers. CPU use rose to ~16 cores.
+                   User closed browsers, Roblox; crosvm had already exited.
+2026-10-03T20:33Z  At the user's request, driver stopped to add workers. 84/760 runs were complete.
+                   The 12 in-flight runs were killed before writing any output (train_online.py
+                   writes CSVs only at the end) and were re-queued unchanged by the resume guard.
+2026-10-03T20:34Z  Driver relaunched: run_final.py --parallel 16, Normal priority; same commit
+                   b732904 (protocol-v2-final); 676 runs queued. New manifest written.
+2026-10-03T21:50Z  Check: 16 workers gave ~888 s per SDH-PPO run vs ~650 s at 12 workers, i.e.
+                   about the same throughput (CPU saturated). Left at 16; no further restart.

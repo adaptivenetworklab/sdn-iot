@@ -1,0 +1,19 @@
+{
+  "started_utc": "2026-10-03T20:34:16.113444+00:00",
+  "git_commit": "b7329044362204a3ae958caf9d5c9c2fedd7d4f7",
+  "git_describe": "protocol-v2-final",
+  "seeds": 20,
+  "steps": 300000,
+  "eval_phase": "test",
+  "parallel": 16,
+  "n_cells": 38,
+  "queued": 676,
+  "selected": {
+    "bcsdhppo": "lr1e-4_ent0.01_tanh_rs19.0106",
+    "ddqn": "lr3e-4_ts2000_b11_ed30000",
+    "dqn": "lr3e-4_ts2000_b11_ed30000",
+    "ppo": "lr3e-4_ent0.01_clip_rs19.0106",
+    "ressdhppo": "lr1e-4_ent0.01_clip_rs1.0",
+    "sdhppo": "lr1e-4_ent0.0_clip_rs19.0106"
+  }
+}
