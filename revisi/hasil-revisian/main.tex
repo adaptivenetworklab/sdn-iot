@@ -55,7 +55,7 @@ email address or ORCID}
 %% produced by a model: they came from hardcoded np.random.uniform draws.
 %% ======================================================================
 \begin{abstract}
-\rev{The evolution toward 6G networks and the proliferation of the Internet of Things (IoT) require adaptive resource orchestration to handle traffic heterogeneity. Multi-tenant network slicing over microservices-based Software-Defined Networking (SDN) provides traffic isolation, but introduces orchestration complexity and queueing latency that risk violating Service Level Agreements (SLAs). Value-based Deep Reinforcement Learning such as Deep Q-Networks is confined to discrete actions, while standard Proximal Policy Optimization converges poorly under non-stationary load. This study proposes SDH-PPO, a continuous-action Actor-Critic policy for per-slice policing-rate control that combines a Dueling Critic head, a rule-based safety-margin correction expressed in SLA-relative units, and a Wasserstein Generative Adversarial Network with Gradient Penalty for traffic augmentation. A physical testbed of Raspberry Pi gateways, sensors, and an Open vSwitch, Ryu, and Flowvisor control plane supplies the measured arrival traces. Policy control is then evaluated in a shared-capacity queueing simulator driven by those traces.} \textcolor{red}{[V2]}
+\rev{The evolution toward 6G networks and the proliferation of the Internet of Things (IoT) require adaptive resource orchestration to handle traffic heterogeneity. Multi-tenant network slicing over microservices-based Software-Defined Networking (SDN) provides traffic isolation, but introduces orchestration complexity and queueing latency that risk violating Service Level Agreements (SLAs). Value-based Deep Reinforcement Learning such as Deep Q-Networks is confined to discrete actions, while standard Proximal Policy Optimization converges poorly under non-stationary load. This study proposes SDH-PPO, a continuous-action Actor-Critic policy for per-slice policing-rate control that combines a Dueling Critic head, a rule-based safety-margin correction expressed in SLA-relative units, and a Wasserstein Generative Adversarial Network with Gradient Penalty for traffic augmentation. A physical testbed of sensors, a single Raspberry Pi 5 gateway, and an Open vSwitch, Ryu, and Flowvisor control plane supplies the measured arrival traces. Policy control is then evaluated in a shared-capacity queueing simulator driven by those traces.} \textcolor{red}{[V2]}
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -191,9 +191,9 @@ The methodology of this research is structured to facilitate an autonomous and a
 
 The system is designed as a multi-tenant SDN-based framework that enables end-to-end network slicing for heterogeneous IoT applications. The architecture facilitates the flow of telemetry data from the physical perception layer to a partitioned storage environment, overseen by a hierarchical control plane that ensures strict tenant isolation.
 
-\subsubsection{Data Acquisition and IoT Gateways}
+\subsubsection{Data Acquisition and IoT Gateway}
 
-At the physical layer, real-time data is captured by various sensor nodes deployed across different operational sectors. Each sector utilizes a Raspberry Pi gateway to aggregate these raw readings and encapsulate them into a standardized JSON format for transmission. This setup includes healthcare sensors for monitoring SpO2 and heart rates, camera-based vision sensors for smart city human detection, and environmental sensors for smart building telemetry such as humidity and temperature.
+At the physical layer, real-time data is captured by various sensor nodes deployed across different operational sectors. \rev{In the testbed used here, a single Raspberry Pi 5 serves as the gateway for all three sectors (Fig.~\ref{fig:1}): it aggregates the raw readings of every sensor and encapsulates them into a standardized JSON format for transmission. A separate gateway per sector is the intended deployment architecture; it was not implemented or tested.} This setup includes healthcare sensors for monitoring SpO2 and heart rates, camera-based vision sensors for smart city human detection, and environmental sensors for smart building telemetry such as humidity and temperature.
 
 \begin{figure}[htbp]
 \centering
@@ -279,24 +279,6 @@ a_{cont}^{(p)} = \frac{\rho_{t + 1}^{(p)} - \rho_{t}^{(p)}}{g\,\rho_{t}^{(p)}},\
 
 \subsubsection{Reward Function}
 
-The sigmoid penalty function, as defined in (\ref{eq:sigpen}), serves as a risk-sensitive soft constraint that penalizes the agent based on the proximity of network latency to the Service Level Agreement (SLA) threshold. By providing a continuous gradient controlled by the steepness parameter \(k\), this mechanism allows the agent to proactively adjust resource allocation as latency nears the critical limit \(\tau\), thereby preventing abrupt performance degradation.
-
-\begin{equation}\label{eq:sigpen}
-P_{lat}(v,\tau,k) = \frac{1}{1 + e^{- k(v - \tau)}}
-\end{equation}
-
-The throughput incentive, as defined in (\ref{eq:thr}), assesses the fulfillment of bandwidth requirements by calculating the ratio between the actual received throughput and the target capacity for Port 2 (Smart City slice). By implementing a clipping mechanism to bound the term within the \(\lbrack 0,1\rbrack\) interval, the function prevents greedy resource consumption and promotes balanced allocation across other network ports once the target is satisfied.
-
-\begin{equation}\label{eq:thr}
-R_{thr} = \text{clip}\left( \frac{RX_{p2}}{T_{p2}},0,1 \right)
-\end{equation}
-
-The packet-drop penalty, as defined in (\ref{eq:pdrop}), quantifies network unreliability by summing packet drops across all three monitored ports and clipping the total at an empirical ceiling of 5. This mechanism discourages the agent from assigning policing rates that exceed physical link capacities, thereby mitigating the risk of mass congestion and systemic packet loss within the Open vSwitch infrastructure.
-
-\begin{equation}\label{eq:pdrop}
-P_{drop} = \text{clip}\left( \sum_{i \in \{1,2,4\}}{Drop_{pi}},\,0,\,5 \right)
-\end{equation}
-
 \rev{All agents in this study are trained online in the queueing simulator of Section~\ref{sec:evalenv}, with the reward of (\ref{eq:rsim}). It is stated in SLA-relative units so that the three slices remain commensurate despite thresholds that differ by an order of magnitude; \m{Drop_p} is the traffic, in Mb, dropped by slice \m{p}'s buffer in that step. The reward is divided by the fixed reward scale of Table~\ref{tab:2}, the standard deviation of the unscaled reward under No Control on the training split:}
 
 \begin{equation}\label{eq:rsim}
@@ -318,14 +300,14 @@ z = \frac{x - \mu}{\sigma}
 The Critic's objective function, formulated in (\ref{eq:ld}), minimizes the Wasserstein distance between real and generated data distributions to enhance discriminative precision while ensuring training stability. To enforce the 1-Lipschitz continuity constraint, a gradient penalty term is integrated to penalize the L2 norm of the gradient with respect to interpolated samples when it deviates from unity, following the WGAN-GP formulation of Gulrajani et al.\cite{b39}
 
 \begin{multline}\label{eq:ld}
-L_{D} = \mathbb{E}_{\widetilde{\mathbb{x}} \sim \mathbb{P}_{\mathbb{g}}}\left\lbrack D\left( \widetilde{x} \right) \right\rbrack - \mathbb{E}_{\mathbb{x} \sim \mathbb{P}_{\mathbb{r}}}\left\lbrack D(x) \right\rbrack \\
-+ \lambda\mathbb{E}_{\widehat{\mathbb{x}} \sim \mathbb{P}_{\widehat{\mathbb{x}}}}\left\lbrack \left( \text{|}\nabla_{\widehat{x}}D\left( \widehat{x} \right)\text{|}_{2} - 1 \right)^{2} \right\rbrack
+L_{D} = \mathbb{E}_{\widetilde{x} \sim \mathbb{P}_{g}}\left\lbrack D\left( \widetilde{x} \right) \right\rbrack - \mathbb{E}_{x \sim \mathbb{P}_{r}}\left\lbrack D(x) \right\rbrack \\
++ \lambda\mathbb{E}_{\widehat{x} \sim \mathbb{P}_{\widehat{x}}}\left\lbrack \left( \left\lVert \nabla_{\widehat{x}}D\left( \widehat{x} \right) \right\rVert_{2} - 1 \right)^{2} \right\rbrack
 \end{multline}
 
 The Generator's objective function, as defined in (\ref{eq:lg}), is formulated to minimize the negative expectation of the scores assigned by the Critic to synthetic samples. By minimizing this loss, the Generator is effectively trained to maximize the perceived authenticity of its output, thereby producing synthetic data that is indistinguishable from the real data distribution to deceive the Critic.
 
 \begin{equation}\label{eq:lg}
-L_{G} = - \mathbb{E}_{\widetilde{\mathbb{x}} \sim \mathbb{P}_{\mathbb{g}}}\left\lbrack D\left( \widetilde{x} \right) \right\rbrack
+L_{G} = - \mathbb{E}_{\widetilde{x} \sim \mathbb{P}_{g}}\left\lbrack D\left( \widetilde{x} \right) \right\rbrack
 \end{equation}
 
 The data interpolation step, as expressed in (\ref{eq:interp}), generates intermediate samples \(\widehat{x}\) by linearly combining real and generated data with a random scaling factor \(\alpha \sim U(0,1)\). This interpolation is essential for calculating the gradient penalty, as it allows the model to enforce the 1-Lipschitz constraint by penalizing the Critic's gradient norm along the path between the real and synthetic data distributions.
@@ -399,7 +381,7 @@ a_t^{(p)} \qquad \text{otherwise}
 %% policies. It is replaced here by an explicit queueing model.
 \rev{Control policies are evaluated in a shared-capacity queueing simulator whose arrival process is replayed from the testbed traces. The separation between what is measured and what is modelled is stated explicitly, because it bounds every claim in Section~\ref{sec:results}.}
 
-\rev{\textbf{Grounded in measurement.} The per-slice offered load is replayed from the \m{RX_{mbps}} columns of the collected trace, which are derived from OvS byte counters and therefore do not depend on clock synchronization between the gateways and the collector. The measured mean demands are 3.85, 3.85, and 4.57 Mbps for P1, P2, and P4.}
+\rev{\textbf{Grounded in measurement.} The per-slice offered load is replayed from the \m{RX_{mbps}} columns of the collected trace, which are derived from OvS byte counters and therefore do not depend on clock synchronization between the gateway and the collector. The measured mean demands are 3.85, 3.85, and 4.57 Mbps for P1, P2, and P4.}
 
 \rev{\textbf{Not grounded in measurement.} The relationship between the policing rate and the resulting delay is \emph{modelled}, not measured. The measurement campaign held the policing rate fixed at 1,000,000 kbps throughout, so no observation of the effect of varying that rate exists. Measured one-way delay is also deliberately excluded as ground truth: 13.19 percent of raw delay samples are negative, indicating that they are dominated by clock offset between sender and collector rather than by queueing. The control results reported here are therefore simulation results, not testbed measurements.}
 
@@ -426,7 +408,7 @@ delay_p &= b_p' / \mu_p
 
 \rev{The trace is split temporally into training, validation and test segments of 613, 204 and 205 rows (60, 20 and 20 percent). Agents are trained on the training split only, and every statistic used by a policy or by the reward (mean demand, link capacity, reward scale) is estimated on it; the test split is evaluated once. Each learner is trained on three versions of the training data: the real training split followed by a synthetic trace of the same length (real + synthetic), the real split alone (real only), and the synthetic trace alone (synthetic only). Evaluation is always on real traffic. Episodes last 50 steps and start from a random initial allocation. Each run trains for at most 300,000 environment steps; every 25,000 steps the policy is probed on 20 fixed validation episodes, the checkpoint with the lowest validation violation is restored at the end, and that checkpoint is evaluated once on 20 test episodes. Hyperparameters marked \m{^\dagger} in Table~\ref{tab:2} were selected per method on the validation split from an eight-configuration grid with two seeds each, with the safety correction off. Every configuration is run for 20 seeds, and seed \m{i} produces the same environment realization for every method, so all comparisons are paired by seed. The primary comparisons form four families: (a) safety correction on versus off for each method; (b) SDH-PPO versus Demand Proportional, both with the correction; (c) the three training-data versions for each learner, without the correction; and (e) each Demand-Proportional-prior variant versus Demand Proportional, with the correction. They are tested with the two-sided Wilcoxon signed-rank test on the paired differences, Holm-corrected within each family, with the paired t-test as a companion. Intervals are percentile bootstrap 95 percent confidence intervals of the mean paired difference (10,000 resamples), and effect size is the matched-pairs rank-biserial correlation. The dueling-head comparison (d) is reported as exploratory, without a significance test.}
 
-\rev{All runs were trained and evaluated on CPU, with the PyTorch 2.7.1 CPU build and Python 3.13.5 under Windows 11, on a single laptop with an Intel Core i7-14650HX processor (16 cores, 24 threads) and 32 GB of RAM; nothing in the control loop runs on the Raspberry Pi gateways, which only collect the traces. The 760 runs of the final sweep took 347.1 hours of summed per-run wall time and finished in 23.3 hours of wall clock, with 12 and later 16 runs in parallel.}
+\rev{All runs were trained and evaluated on CPU, with the PyTorch 2.7.1 CPU build and Python 3.13.5 under Windows 11, on a single laptop with an Intel Core i7-14650HX processor (16 cores, 24 threads) and 32 GB of RAM; nothing in the control loop runs on the Raspberry Pi gateway, which only collects the traces. The 760 runs of the final sweep took 347.1 hours of summed per-run wall time and finished in 23.3 hours of wall clock, with 12 and later 16 runs in parallel.}
 
 \begin{table}[htbp]
 \centering
