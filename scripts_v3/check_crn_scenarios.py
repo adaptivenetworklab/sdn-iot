@@ -2,7 +2,8 @@
 
 Same pattern as scripts/check_crn.py (RecEnv logging every reset, lines 30-35;
 env_for, lines 55-57; shared evaluation episodes, lines 83-92), which is
-imported, not modified. For every seed in 20-39, with the var_matched arm:
+imported, not modified. For every seed in 20-39 and each matched arm
+(var_matched, moment_matched):
 
 - training: dqn and ddqn see the same sequence of episode resets;
 - evaluation: dqn, ddqn and demand_prop see the same resets on the plain val
@@ -34,11 +35,16 @@ EVAL_EPISODES, EPISODE_LEN = 20, 50
 
 def main():
     trace = load_arrival_trace()
+    for arm in run_v3.MATCHED_ARMS:
+        check_arm(trace, arm)
+
+
+def check_arm(trace, arm):
     split = Namespace(phase="train", eval_phase="val", allow_test=False, split="0.6,0.2,0.2",
-                      arm=run_v3.VAR_ARM)
+                      arm=arm)
     train, val_arr, _, train_slice = run_v3.split_arrivals(trace, split)
     assert len(train) == len(train_slice) and not np.array_equal(train, train_slice), \
-        "var_matched did not replace the training rows"
+        f"{arm} did not replace the training rows"
     mean_demand = train_slice.mean(axis=0)
     n_train = n_eval = 0
     for seed in SEEDS:
@@ -79,10 +85,10 @@ def main():
             else:
                 assert first == plain, f"seed {seed}: {scen} resets differ from plain evaluation"
             n_eval += len(first) * len(logs)
-        print(f"seed {seed}: ok", flush=True)
+        print(f"{arm} seed {seed}: ok", flush=True)
 
     print(f"check_crn_scenarios: K2 holds for seeds {SEEDS.start}-{SEEDS.stop - 1}, arm "
-          f"{run_v3.VAR_ARM}; training resets identical for dqn/ddqn ({n_train} resets); "
+          f"{arm}; training resets identical for dqn/ddqn ({n_train} resets); "
           f"evaluation resets identical for dqn/ddqn/demand_prop on plain, "
           f"{', '.join(SCENARIOS)} and equal across scenarios ({n_eval} episode resets)")
 

@@ -10,13 +10,16 @@ things without editing any V2 file:
    results/v3/checkpoints/<run_id>.pt, next to <run_id>.json with the full run
    metadata. run_id = <output dir name>__<V2 file stem>.
 
-2. Data arm `var_matched`. Only that arm goes through the override of
-   split_arrivals; every other arm calls the V2 function untouched. It uses the
-   613 real train rows, keeps each port's train mean, and rescales each port's
-   deviation from that mean so the port's standard deviation equals the one of
-   the synthetic trace data/synth/train_synth_trace.csv (attempt 1). Values
-   below 0 are clipped to 0 and counted. Statistics come from the real train
-   rows and the synthetic trace only, never from val or test.
+2. Data arms `var_matched` and `moment_matched` (protocol v3, section 4). Only
+   these arms go through the override of split_arrivals; every other arm calls
+   the V2 function untouched. Both use the 613 real train rows and rescale each
+   port's deviation from its train mean by sigma_s / sigma_r, the std ratio of
+   the synthetic trace data/synth/train_synth_trace.csv (attempt 1) to the real
+   train rows:
+       var_matched:    x' = mu_r + (x - mu_r) * sigma_s / sigma_r
+       moment_matched: x' = mu_s + (x - mu_r) * sigma_s / sigma_r
+   Values below 0 are clipped to 0 and counted. Statistics come from the real
+   train rows and the synthetic trace only, never from val or test.
 
     python scripts_v3/run_v3.py <train_online.py arguments...>
 """
@@ -34,12 +37,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import train_online as T  # noqa: E402
 
 VAR_ARM = "var_matched"
+# arm -> whose per-port mean the rescaled rows keep
+MATCHED_ARMS = {VAR_ARM: "real", "moment_matched": "synth"}
 SYNTH = ROOT / "data" / "synth" / "train_synth_trace.csv"
 SYNTH_ATTEMPT1 = ROOT / "data" / "synth" / "train_synth_trace_attempt1.csv"
 CKPT_DIR = ROOT / "results" / "v3" / "checkpoints"
 
 CAPTURED = {}       # network behind the returned policy, filled by the run_* wrappers
-VAR_INFO = {}       # var_matched statistics of the current run
+VAR_INFO = {}       # matched-arm statistics of the current run
 
 
 def load_synth():
@@ -49,17 +54,20 @@ def load_synth():
     return pd.read_csv(SYNTH).to_numpy(dtype=float)
 
 
-def var_matched(train_real, synth):
+def matched(train_real, synth, mean_from):
     """Real train rows with per-port deviations rescaled to the synthetic std.
 
-    Both arrays have 613 rows, so the std ratio is the same for ddof 0 and 1;
-    numpy's default (ddof 0) is used for both.
+    mean_from = "real" keeps the real train mean (var_matched), "synth" moves it
+    to the synthetic mean (moment_matched). Both arrays have 613 rows, so the
+    std ratio is the same for ddof 0 and 1; numpy's default (ddof 0) is used.
     """
     mean = train_real.mean(axis=0)
+    target = mean if mean_from == "real" else synth.mean(axis=0)
     scale = synth.std(axis=0) / train_real.std(axis=0)
-    out = mean + (train_real - mean) * scale
+    out = target + (train_real - mean) * scale
     neg = out < 0.0
-    info = {"rows": int(len(out)), "train_mean": mean.tolist(),
+    info = {"mean_from": mean_from, "rows": int(len(out)), "train_mean": mean.tolist(),
+            "synth_mean": synth.mean(axis=0).tolist(), "target_mean": target.tolist(),
             "train_std": train_real.std(axis=0).tolist(), "synth_std": synth.std(axis=0).tolist(),
             "scale": scale.tolist(), "clipped_values_per_port": neg.sum(axis=0).tolist(),
             "clipped_rows": int(neg.any(axis=1).sum())}
@@ -69,14 +77,18 @@ def var_matched(train_real, synth):
 _v2_split_arrivals = T.split_arrivals
 
 
+def var_matched(train_real, synth):
+    return matched(train_real, synth, "real")
+
+
 def split_arrivals(full_trace, args):
-    if args.arm != VAR_ARM:
+    if args.arm not in MATCHED_ARMS:
         return _v2_split_arrivals(full_trace, args)
     # Same split and guards as the V2 real_only arm; only the training rows change.
     base = argparse.Namespace(**{**vars(args), "arm": "real_only"})
     arrivals, eval_arrivals, probe_arrivals, train_slice = _v2_split_arrivals(full_trace, base)
     if args.phase == "train":
-        arrivals, info = var_matched(train_slice, load_synth())
+        arrivals, info = matched(train_slice, load_synth(), MATCHED_ARMS[args.arm])
         VAR_INFO.clear()
         VAR_INFO.update(info)
     return arrivals, eval_arrivals, probe_arrivals, train_slice
@@ -94,8 +106,9 @@ def _capture(run_fn, attr):
 
 def install():
     """Patch the V2 module in memory. Idempotent; V2 files are never written."""
-    if VAR_ARM not in T.ARMS:
-        T.ARMS.append(VAR_ARM)                   # argparse choices read this list in main()
+    for arm in MATCHED_ARMS:
+        if arm not in T.ARMS:
+            T.ARMS.append(arm)                   # argparse choices read this list in main()
     T.split_arrivals = split_arrivals
     if not getattr(T.run_ppo, "_v3", False):
         T.run_ppo = _capture(T.run_ppo, "actor")
@@ -122,7 +135,7 @@ def main(argv):
     run_id = f"{out.name}__{written[0].stem}"
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
     record = {"run_id": run_id, "v2_run_json": str(written[0]), "argv": argv, "meta": meta,
-              "var_matched": dict(VAR_INFO) if meta["arm"] == VAR_ARM else None,
+              "matched_arm": dict(VAR_INFO) if meta["arm"] in MATCHED_ARMS else None,
               "weights": None}
     if CAPTURED:
         net = CAPTURED["net"]
