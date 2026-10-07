@@ -26,6 +26,7 @@ things without editing any V2 file:
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -116,25 +117,51 @@ def install():
         T.run_ppo._v3 = T.run_dqn._v3 = True
 
 
-def output_dir(argv):
+def run_json(argv):
+    """Path of the run JSON train_online.main() writes, from its own naming rule.
+
+    Mirrors train_online.py:755-765 (stem) with the same defaults, so runs of one
+    cell running in parallel in the same directory never get confused. (The
+    first version picked "the newly modified JSON", which broke exactly then.)
+    """
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("--out", type=Path, default=ROOT / "results" / "online")
-    return p.parse_known_args(argv)[0].out
+    p.add_argument("--algo")
+    p.add_argument("--arm", default="full")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--phase", default=None)
+    p.add_argument("--safety", default=None)
+    p.add_argument("--actor-init", default="random")
+    p.add_argument("--residual", default="off")
+    p.add_argument("--residual-bound", type=float, default=0.25)
+    a = p.parse_known_args(argv)[0]
+    want_mask = (a.algo == "sdhppo" and a.arm != "no_mask") if a.safety is None \
+        else a.safety == "on"
+    if a.phase is None and a.safety is None:
+        stem = f"{a.algo}_{a.arm}_seed{a.seed}"
+    else:
+        stem = (f"{a.algo}_{a.arm}_{a.phase or 'nosplit'}"
+                f"_safety{'on' if want_mask else 'off'}_seed{a.seed}")
+    if a.actor_init != "random":
+        stem += f"_init-{a.actor_init}"
+    if a.residual == "on":
+        stem += f"_res{a.residual_bound:g}"
+    return a.out / f"{stem}.json"
 
 
 def main(argv):
     install()
-    out = output_dir(argv)
-    before = {f: f.stat().st_mtime for f in out.glob("*.json")} if out.exists() else {}
+    path = run_json(argv)
+    started = time.time()
     sys.argv = ["train_online.py", *argv]
     T.main()
-    written = [f for f in out.glob("*.json") if before.get(f) != f.stat().st_mtime]
-    if len(written) != 1:
-        raise SystemExit(f"expected one new run JSON in {out}, found {written}")
-    meta = json.loads(written[0].read_text(encoding="utf-8"))
-    run_id = f"{out.name}__{written[0].stem}"
+    if not path.exists() or path.stat().st_mtime < started:
+        raise SystemExit(f"run JSON {path} was not written by this run")
+    out = path.parent
+    meta = json.loads(path.read_text(encoding="utf-8"))
+    run_id = f"{out.name}__{path.stem}"
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
-    record = {"run_id": run_id, "v2_run_json": str(written[0]), "argv": argv, "meta": meta,
+    record = {"run_id": run_id, "v2_run_json": str(path), "argv": argv, "meta": meta,
               "matched_arm": dict(VAR_INFO) if meta["arm"] in MATCHED_ARMS else None,
               "weights": None}
     if CAPTURED:
